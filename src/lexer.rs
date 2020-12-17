@@ -2,16 +2,16 @@ use logos::{Logos, Lexer as LLexer};
 
 #[derive(Logos, Clone, Debug, PartialEq)]
 pub enum ObjectT {
-    #[token("(")]
+    #[token("(", priority = 4)]
     LBrace,
-    #[token(")")]
+    #[token(")", priority = 4)]
     RBrace,
-    #[regex("-?([0-9]+)|([0-9]*\\.[0-9]+)", |lex| lex.slice().parse())]
+    #[regex("-?(([0-9]*\\.[0-9]+|[0-9]+))", |lex| lex.slice().parse(), priority = 3)]
     Number(f64),
-    #[regex("[a-zA-Z]+", |lex| lex.slice().to_string())]
-    Symbol(String),
-    #[token("\"")]
+    #[token("\"", priority = 2)]
     StartString,
+    #[regex("[^\\s\\(\\)]+", |lex| lex.slice().to_string(), priority = 1)]
+    Symbol(String),
     #[error]
     #[regex(r"[ \t\n\f]+", logos::skip)]
     Error,

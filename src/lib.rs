@@ -1,138 +1,150 @@
+use std::collections::HashMap;
 use std::fmt;
 
 mod lexer;
+pub mod reader;
+mod native;
 
-use crate::lexer::{Tokens, ObjectT, StringT, Lexer};
+type Native = fn(&[LispObject]) -> Result<LispObject, EvalError>;
+
+pub struct EvalError {
+    pub message: String,
+    pub trace: Vec<usize>,
+}
+
+impl fmt::Display for EvalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl EvalError {
+    pub fn new(message: String) -> EvalError {
+        EvalError {
+            message: message,
+            trace: vec![],
+        }
+    }
+
+    pub fn trace(mut self, index: usize) -> EvalError {
+        self.trace.push(index);
+        self
+    }
+}
 
 #[derive(Clone)]
-pub enum SExp {
+pub enum LispObject {
     Symbol(String),
     String(String),
     Number(f64),
-    List(Vec<SExp>),
+    List(Vec<LispObject>),
+    Native(Native),
 }
 
-const UNKNOWN_CHAR: &str = "Unexpected character.";
-const UNEXPECTED_RBRACE: &str = "Right brace without matching lbrace.";
-const UNEXPECTED_ENDOFSTR: &str = "Unexpected end of input while parsing string.";
-const INTERNAL_ERROR: &str = "Internal Error.";
-
-pub enum ReadError {
-    UnknownCharacter((usize, usize)),
-    UnexpectedRbrace((usize, usize)),
-    UnexpectedEndOfString,
-    InternalError,
+fn form_to_string(l: &Vec<LispObject>) -> String {
+    l.iter()
+        .map(|o| o.to_string())
+        .collect::<Vec<String>>()
+        .join(" ")
 }
 
-impl fmt::Display for ReadError {
+// impl fmt::Display for LispObject {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(f, "{}", match self {
+//             LispObject::Symbol(s) => format!("{}:{}", s.to_string(), "sym"),
+//             LispObject::String(s) => format!("\"{}\":{}", s, "str"),
+//             LispObject::Number(n) => format!("{}:{}", n.to_string(), "num"),
+//             LispObject::List(l) => format!("({})", form_to_string(l)),
+//             LispObject::Native(_) => "~~native~~".to_string(),
+//         })
+//     }
+// }
+
+impl fmt::Display for LispObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", match self {
-            ReadError::UnknownCharacter(_) => UNKNOWN_CHAR,
-            ReadError::UnexpectedRbrace(_) => UNEXPECTED_RBRACE,
-            ReadError::UnexpectedEndOfString => UNEXPECTED_ENDOFSTR,
-            ReadError::InternalError => INTERNAL_ERROR,
+            LispObject::Symbol(s) => format!("{}", s),
+            LispObject::String(s) => format!("\"{}\"", s),
+            LispObject::Number(n) => format!("{}", n.to_string()),
+            LispObject::List(l) => format!("({})", form_to_string(l)),
+            LispObject::Native(_) => "~~native~~".to_string(),
         })
     }
 }
 
-pub struct Reader {
-    stack: Vec<Vec<SExp>>
+pub fn as_symbol(obj: &LispObject) -> Result<String, EvalError> {
+    match obj {
+        LispObject::Symbol(s) => Ok(s.to_string()),
+        _ => Err(EvalError::new("Expected a symbol".to_string())),
+    }
 }
 
-impl Reader {
-    pub fn new() -> Reader {
-        Reader {
-            stack: vec![]
+pub struct ArgError {
+    pub message: String,
+    pub index: usize,
+}
+
+pub fn as_numbers(objects: &[LispObject]) -> Result<Vec<f64>, ArgError> {
+    objects
+        .iter().enumerate()
+        .map(|(index, object)| {
+            match expect_number(object) {
+                Err(message) => Err(ArgError{message, index}),
+                Ok(n) => Ok(n),
+            }
+        })
+        .collect()
+}
+
+pub fn expect_number(obj: &LispObject) -> Result<f64, String> {
+    match obj {
+        LispObject::Number(n) => Ok(*n),
+        _ => Err("Expected a number".to_string()),
+    }
+}
+
+pub struct Env<'a> {
+    vars: HashMap<String, LispObject>,
+    parent: Option<&'a Env<'a>>,
+}
+
+impl<'a> Env<'a> {
+    fn root() -> Env<'static> {
+        Env {
+            vars: HashMap::new(),
+            parent: None,
         }
     }
 
-    pub fn partial(&mut self, prog: &mut Vec<SExp>, input: &String) -> Result<(), ReadError> {
-        let mut lexer = Lexer::new(input);
-        loop {
-            match self.parse_sexp(&mut lexer) {
-                Ok(Some(sexp)) => prog.push(sexp),
-                Ok(None) => return Ok(()),
-                Err(s) => return Err(s),
+    pub fn derive(&self) -> Env {
+        Env {
+            vars: HashMap::new(),
+            parent: Some(self),
+        }
+    }
+
+    pub fn set(&mut self, key: String, value: LispObject) {
+        self.vars.insert(key, value);
+    }
+
+    pub fn resolve(&self, key: &str) -> Option<&LispObject> {
+        match self.vars.get(key) {
+            Some(value) => Some(value),
+            None => match self.parent {
+                Some(scope) => scope.resolve(key),
+                None => None,
             }
         }
     }
+}
 
-    fn parse_sexp(&mut self, lexer: &mut Lexer) -> Result<Option<SExp>, ReadError> {
-        loop {
-            match lexer.next() {
-                Some(Tokens::String(_))
-                    => return Err(ReadError::InternalError),
-                Some(Tokens::Object(ObjectT::Error))
-                    => return Err(ReadError::UnknownCharacter(lexer.span())),
+fn set_native(env: &mut Env, key: &str, value: Native) {
+    env.set(key.to_string(), LispObject::Native(value));
+}
 
-                None
-                    => return Ok(None),
-
-                Some(Tokens::Object(ObjectT::LBrace))
-                    => self.stack.push(vec![]),
-                Some(Tokens::Object(ObjectT::RBrace))
-                    => match self.stack.len() {
-                        0 => return Err(ReadError::UnexpectedRbrace(lexer.span())),
-                        1 => return Ok(Some(self.pop_list())),
-                        _ => {
-                            let sxp = self.pop_list();
-                            self.push_sexp(sxp);
-                        }
-                    },
-                Some(Tokens::Object(ObjectT::Number(n)))
-                    => if let Some(a) = self.handle_atom(SExp::Number(n)) {
-                        return Ok(Some(a))
-                    },
-                Some(Tokens::Object(ObjectT::Symbol(s)))
-                    => if let Some(a) = self.handle_atom(SExp::Symbol(s)) {
-                        return Ok(Some(a))
-                    },
-                Some(Tokens::Object(ObjectT::StartString))
-                    => return self.parse_string(lexer).map(|s| Some(s)),
-            }
-        }
-    }
-
-    fn handle_atom(&mut self, a: SExp) -> Option<SExp> {
-        match self.stack.len() {
-            0 => return Some(a),
-            _ => self.push_sexp(a)
-        }
-        None
-    }
-
-    fn parse_string(&mut self, lexer: &mut Lexer) -> Result<SExp, ReadError> {
-        let mut string = String::new();
-        let res = loop {
-            match lexer.next() {
-                Some(Tokens::Object(_))
-                    => return Err(ReadError::InternalError),
-                Some(Tokens::String(StringT::Error))
-                    => return Err(ReadError::UnknownCharacter(lexer.span())),
-
-                None
-                    => break Err(ReadError::UnexpectedEndOfString),
-
-                Some(Tokens::String(StringT::Text(s)))
-                    => string.push_str(&s[..]),
-                Some(Tokens::String(StringT::EndString))
-                    => break Ok(()),
-            }
-        };
-        res.map(|()| SExp::String(string))
-    }
-
-    fn push_sexp(&mut self, sexp: SExp) {
-        let mut l = self.stack.pop().unwrap();
-        l.push(sexp);
-        self.stack.push(l);
-    }
-
-    fn pop_list(&mut self) -> SExp {
-        SExp::List(self.stack.pop().unwrap())
-    }
-
-    pub fn len(&self) -> usize {
-        self.stack.len()
-    }
+pub fn create_root() -> Env<'static> {
+    let mut root = Env::root();
+    set_native(&mut root, "+", native::add);
+    set_native(&mut root, "*", native::multiply);
+    root
 }
