@@ -8,7 +8,6 @@ use lisp::{
     LispObject,
     EvalError,
     Env,
-    as_symbol,
     create_root};
 
 fn print_underline(start: usize, end: usize) {
@@ -87,13 +86,8 @@ fn apply(env: &mut Env, form: &Vec<LispObject>) -> Result<LispObject, EvalError>
              .map_err(|e| e.trace(index + 1)))
         .collect::<Result<Vec<LispObject>, EvalError>>()?;
 
-    let head: &LispObject = eval(env, &form[0])
-        .map_err(|e| e.trace(0))
-        .and_then(|sym| as_symbol(&sym)
-                  .map_err(|e| e.trace(0)))
-        .and_then(|sym| env.resolve(&sym[..])
-                  .map_or_else(|| Err(EvalError::new(format!("Unbound symbol '{}'", sym)).trace(0)),
-                               |head| Ok(head)))?;
+    let head = eval(env, &form[0])
+        .map_err(|e| e.trace(0))?;
 
     match head {
         LispObject::Native(f) => f(&args[..]),
@@ -104,7 +98,10 @@ fn apply(env: &mut Env, form: &Vec<LispObject>) -> Result<LispObject, EvalError>
 fn eval(env: &mut Env, object: &LispObject) -> Result<LispObject, EvalError> {
     match object {
         LispObject::List(l)   => apply(env, &l),
-        LispObject::Symbol(s) => Ok(LispObject::Symbol(s.to_string())),
+        LispObject::Symbol(s) => match env.resolve(&s[..]) {
+            Some(object) => Ok(object.clone()),
+            None =>         Err(EvalError::new(format!("Unbound symbol '{}'", s)))
+        }
         LispObject::String(s) => Ok(LispObject::String(s.to_string())),
         LispObject::Number(n) => Ok(LispObject::Number(*n)),
         LispObject::Native(f) => Ok(LispObject::Native(*f)),
@@ -126,16 +123,20 @@ fn main() {
         match rl.readline(&prompt[..]) {
             Ok(line) => {
                 let mut prog: Vec<LispObject> = vec![];
-                let res = reader.partial(&mut prog, &line);
-                if let Err(e) = handle_read_error(&line, res) {
-                    break Err(e.to_string());
-                } else {
-                    for obj in prog {
+                match reader.partial(&mut prog, &line) {
+                    Ok(()) => for obj in prog {
                         match eval(&mut env, &obj) {
                             Ok(object) => println!("{}", &object),
                             Err(e) => handle_eval_error(&obj, e),
                         }
                     }
+                    result @ _ => if let Err(e) = handle_read_error(&line, result) {
+                        break Err(e.to_string());
+                    }
+                }
+
+                if line.trim().len() > 0 {
+                    rl.add_history_entry(line);
                 }
             },
             Err(ReadlineError::Eof)         => break Ok(()),
