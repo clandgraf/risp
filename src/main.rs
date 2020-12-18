@@ -126,10 +126,10 @@ fn apply(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>) -> Result<LispObj
         LispObject::SpecialForm(SpecialForm::If)
             => {
                 assert_min_form_args(&form[1..], 2, || "special form if".to_string())?;
-                let result = eval(sym, env, &form[1])
+                let predicate = eval(sym, env, &form[1])
                     .and_then(|object| object.as_bool())
                     .map_err(|e| e.trace(1))?;
-                if result {
+                if predicate {
                     eval(sym, env, &form[2])
                         .map_err(|e| e.trace(2))
                 } else if form.len() == 3 {

@@ -57,6 +57,7 @@ pub enum LispObject {
     Number(f64),
     List(Vec<LispObject>),
     Native(Native),
+    Lambda(Vec<Symbol>, Vec<LispObject>),
 }
 
 impl LispObject {
