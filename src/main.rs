@@ -11,7 +11,8 @@ use lisp::{
     },
     lisp_object_util::{
         assert_exact_form_args,
-        assert_min_form_args
+        assert_min_form_args,
+        as_symbols,
     },
     reader::{
         Reader,
@@ -121,8 +122,15 @@ fn apply(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>) -> Result<LispObj
                          .trace(1))
             }
         },
-        LispObject::SpecialForm(SpecialForm::Fn)
-            => Err(EvalError::new("TODO implement fn".to_string()).trace(0)),
+        LispObject::SpecialForm(SpecialForm::Fn) => {
+            assert_min_form_args(&form[1..], 2, || "special form fn".to_string())?;
+            let plist = &form[1].as_list()
+                .map_err(|e| e.trace(1))?;
+            let params = as_symbols(plist)
+                .map_err(|(e, index)| e.trace(index).trace(1))?;
+            let body = form[2..].iter().cloned().collect();
+            Ok(LispObject::Lambda(params, body))
+        },
         LispObject::SpecialForm(SpecialForm::If)
             => {
                 assert_min_form_args(&form[1..], 2, || "special form if".to_string())?;
@@ -143,7 +151,21 @@ fn apply(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>) -> Result<LispObj
                 }
             },
         LispObject::SpecialForm(SpecialForm::Let)
-            => Err(EvalError::new("TODO implement let".to_string()).trace(0)),
+            => Err(EvalError::new("TODO implement special form let".to_string()).trace(0)),
+        LispObject::Lambda(params, forms) => {
+            assert_exact_form_args(&form[1..], params.len(), || ("lambda".to_string()))?;
+            let args = apply_eval_args(sym, env, form)?;
+            let mut env = env.derive();
+            params.iter().zip(args)
+                .for_each(|(sym, value)| env.set(*sym, value));
+            // TODO need a new entry for stack trace, as we're
+            //      descending into a new set of forms here
+            let result = forms.iter().enumerate()
+                .map(|(index, object)| eval(sym, &mut env, object)
+                     .map_err(|e| EvalError::new(e.message)))
+                .collect::<Result<Vec<LispObject>, EvalError>>()?;
+            Ok(result[result.len() -1].clone())
+        }
         LispObject::Native(f) => {
             let args = apply_eval_args(sym, env, form)?;
             f(&args[..])
@@ -164,6 +186,9 @@ fn eval(sym: &Symbols, env: &mut Env, object: &LispObject) -> Result<LispObject,
         LispObject::Number(n) => Ok(LispObject::Number(*n)),
         LispObject::Bool(b)   => Ok(LispObject::Bool(*b)),
         LispObject::Native(f) => Ok(LispObject::Native(*f)),
+        LispObject::Lambda(_, _)
+            => Err(EvalError::new(
+                format!("Unexpected lambda. This is probably an internal error."))),
         LispObject::SpecialForm(_)
             => Err(EvalError::new(
                 format!("Unexpected special form. This is probably an internal error.")))
@@ -189,7 +214,7 @@ fn main() {
                 match reader.partial(&mut symbols, &mut prog, &line) {
                     Ok(()) => for obj in prog {
                         match eval(&symbols, &mut env, &obj) {
-                            Ok(object) => println!("{}", &object),
+                            Ok(object) => println!("{}", symbols.serialize_object(&object)),
                             Err(e) => handle_eval_error(&symbols, &obj, e),
                         }
                     }

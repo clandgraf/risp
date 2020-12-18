@@ -75,10 +75,17 @@ impl LispObject {
         }
     }
 
-    pub fn as_symbol(obj: &LispObject) -> Result<Symbol, EvalError> {
-        match obj {
+    pub fn as_symbol(&self) -> Result<Symbol, EvalError> {
+        match self {
             LispObject::Symbol(s) => Ok(*s),
             _ => Err(EvalError::new("Expected a symbol".to_string())),
+        }
+    }
+
+    pub fn as_list(&self) -> Result<Vec<LispObject>, EvalError> {
+        match self {
+            LispObject::List(l) => Ok(l.clone()),
+            _ => Err(EvalError::new("Expected a list".to_string())),
         }
     }
 }
@@ -102,6 +109,13 @@ fn form_to_string(l: &Vec<LispObject>) -> String {
         .join(" ")
 }
 
+fn params_to_string(p: &Vec<Symbol>) -> String {
+    p.iter()
+        .map(|o| o.to_string())
+        .collect::<Vec<String>>()
+        .join(" ")
+}
+
 impl fmt::Display for LispObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", match self {
@@ -113,6 +127,10 @@ impl fmt::Display for LispObject {
             LispObject::Number(n) => format!("{}", n.to_string()),
             LispObject::List(l) => format!("({})", form_to_string(l)),
             LispObject::Native(_) => "~~native~~".to_string(),
+            LispObject::Lambda(params, forms) =>
+                format!("(fn ({}) {})",
+                        params_to_string(params),
+                        form_to_string(forms)),
         })
     }
 }

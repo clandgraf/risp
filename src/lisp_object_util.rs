@@ -1,6 +1,7 @@
 use crate::lisp_object::{
     EvalError,
     LispObject,
+    Symbol,
 };
 
 pub fn assert_exact_form_args(form: &[LispObject], len: usize, description: fn() -> String)
@@ -30,7 +31,19 @@ pub fn as_numbers(objects: &[LispObject]) -> Result<Vec<f64>, (EvalError, usize)
         .iter().enumerate()
         .map(|(index, object)| {
             match object.as_number() {
-                Err(message) => Err((message, index)),
+                Err(e) => Err((e, index)),
+                Ok(n) => Ok(n),
+            }
+        })
+        .collect()
+}
+
+pub fn as_symbols(objects: &[LispObject]) -> Result<Vec<Symbol>, (EvalError, usize)> {
+    objects
+        .iter().enumerate()
+        .map(|(index, object)| {
+            match object.as_symbol() {
+                Err(e) => Err((e, index)),
                 Ok(n) => Ok(n),
             }
         })

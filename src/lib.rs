@@ -52,11 +52,23 @@ impl Symbols {
             .join(" ")
     }
 
+    fn params_to_string(&self, ps: &Vec<Symbol>) -> String {
+        ps.iter()
+            .map(|o| self.as_string(o).unwrap_or("~~uninterned~~"))
+            .collect::<Vec<&str>>()
+            .join(" ")
+    }
+
     pub fn serialize_object(&self, obj: &LispObject) -> String {
         match obj {
             LispObject::Symbol(s) => format!("{}", self.as_string(s)
                                              .unwrap_or("~~uninterned~~")),
             LispObject::List(l) => format!("({})", self.form_to_string(l)),
+            LispObject::Lambda(ps, fs) =>
+                format!("(fn ({}) {})",
+                        self.params_to_string(ps),
+                        self.form_to_string(fs)),
+
             _ => obj.to_string(),
         }
     }
