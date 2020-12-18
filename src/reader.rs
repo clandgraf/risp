@@ -1,7 +1,8 @@
 use std::fmt;
 
 use crate::lexer::{Tokens, ObjectT, StringT, Lexer};
-use crate::{LispObject, Symbols};
+use crate::lisp_object::LispObject;
+use crate::Symbols;
 
 const UNKNOWN_CHAR: &str = "Unexpected character.";
 const UNEXPECTED_RBRACE: &str = "Right brace without matching lbrace.";
@@ -71,6 +72,14 @@ impl Reader {
                             let sxp = self.pop_list();
                             self.push_sexp(sxp);
                         }
+                    },
+                Some(Tokens::Object(ObjectT::True))
+                    => if let Some(a) = self.handle_atom(LispObject::Bool(true)) {
+                        return Ok(Some(a))
+                    },
+                Some(Tokens::Object(ObjectT::False))
+                    => if let Some(a) = self.handle_atom(LispObject::Bool(false)) {
+                        return Ok(Some(a))
                     },
                 Some(Tokens::Object(ObjectT::Number(n)))
                     => if let Some(a) = self.handle_atom(LispObject::Number(n)) {

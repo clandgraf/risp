@@ -2,6 +2,10 @@ use logos::{Logos, Lexer as LLexer};
 
 #[derive(Logos, Clone, Debug, PartialEq)]
 pub enum ObjectT {
+    #[token("#t")]
+    True,
+    #[token("#f")]
+    False,
     #[token("(", priority = 4)]
     LBrace,
     #[token(")", priority = 4)]

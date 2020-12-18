@@ -4,13 +4,23 @@ use rustyline;
 use std::fmt;
 
 use lisp::{
-    reader::{Reader, ReadError},
-    SpecialForm,
-    LispObject,
-    EvalError,
+    lisp_object::{
+        EvalError,
+        LispObject,
+        SpecialForm,
+    },
+    lisp_object_util::{
+        assert_exact_form_args,
+        assert_min_form_args
+    },
+    reader::{
+        Reader,
+        ReadError,
+    },
     Env,
     Symbols,
-    create_root};
+    create_root
+};
 
 fn print_underline(start: usize, end: usize) {
     eprintln!(" {} {}{}", Blue.paint("|"), " ".repeat(start), Red.paint("^".repeat(end - start)));
@@ -58,7 +68,7 @@ fn handle_failed_form(sym: &Symbols, form: &LispObject, stack: &[usize]) -> (Str
                         end = off1 + string.len();
                         string.push_str(&s);
                     } else {
-                        string.push_str(&object.to_string());
+                        string.push_str(&sym.serialize_object(object));
                     }
                     if index == l.len() - 1 {
                         string.push_str(")");
@@ -86,17 +96,6 @@ fn apply_eval_args(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>)
         .collect::<Result<Vec<LispObject>, EvalError>>()
 }
 
-fn assert_form_len(sf: &SpecialForm, form: &Vec<LispObject>, len: usize)
-                   -> Result<(), EvalError> {
-    let actual_len = form.len();
-    if actual_len != len {
-        Err(EvalError::new(format!("special form {} requires exactly {} arguments, got {}",
-                                   sf.to_string(), len, actual_len)))
-    } else {
-        Ok(())
-    }
-}
-
 fn apply(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>) -> Result<LispObject, EvalError> {
     if form.len() == 0 {
         return Err(EvalError::new("apply received empty form".to_string()))
@@ -106,12 +105,12 @@ fn apply(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>) -> Result<LispObj
         .map_err(|e| e.trace(0))?;
 
     match head {
-        LispObject::SpecialForm(SpecialForm::If)
-            => Err(EvalError::new("TODO implement if".to_string()).trace(0)),
         LispObject::SpecialForm(SpecialForm::Def) => {
-            assert_form_len(&SpecialForm::Def, form, 3)?;
+            assert_exact_form_args(&form[1..], 2, || "special form def".to_string())?;
             match form[1] {
                 LispObject::Symbol(s) => {
+                    // TODO def should set in global env,
+                    //      let establishes local bindings
                     let value = eval(sym, env, &form[2])
                         .map_err(|e| e.trace(2))?;
                     env.set(s, value.clone());
@@ -122,6 +121,29 @@ fn apply(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>) -> Result<LispObj
                          .trace(1))
             }
         },
+        LispObject::SpecialForm(SpecialForm::Fn)
+            => Err(EvalError::new("TODO implement fn".to_string()).trace(0)),
+        LispObject::SpecialForm(SpecialForm::If)
+            => {
+                assert_min_form_args(&form[1..], 2, || "special form if".to_string())?;
+                let result = eval(sym, env, &form[1])
+                    .and_then(|object| object.as_bool())
+                    .map_err(|e| e.trace(1))?;
+                if result {
+                    eval(sym, env, &form[2])
+                        .map_err(|e| e.trace(2))
+                } else if form.len() == 3 {
+                    Ok(LispObject::Bool(false))
+                } else {
+                    let result = form[3..].iter().enumerate()
+                        .map(|(index, object)| eval(sym, env, object)
+                             .map_err(|e| e.trace(3 + index)))
+                        .collect::<Result<Vec<LispObject>, EvalError>>()?;
+                    Ok(result[result.len() -1].clone())
+                }
+            },
+        LispObject::SpecialForm(SpecialForm::Let)
+            => Err(EvalError::new("TODO implement let".to_string()).trace(0)),
         LispObject::Native(f) => {
             let args = apply_eval_args(sym, env, form)?;
             f(&args[..])
@@ -140,6 +162,7 @@ fn eval(sym: &Symbols, env: &mut Env, object: &LispObject) -> Result<LispObject,
         }
         LispObject::String(s) => Ok(LispObject::String(s.to_string())),
         LispObject::Number(n) => Ok(LispObject::Number(*n)),
+        LispObject::Bool(b)   => Ok(LispObject::Bool(*b)),
         LispObject::Native(f) => Ok(LispObject::Native(*f)),
         LispObject::SpecialForm(_)
             => Err(EvalError::new(
