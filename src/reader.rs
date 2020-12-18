@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::lexer::{Tokens, ObjectT, StringT, Lexer};
-use crate::LispObject;
+use crate::{LispObject, Symbols};
 
 const UNKNOWN_CHAR: &str = "Unexpected character.";
 const UNEXPECTED_RBRACE: &str = "Right brace without matching lbrace.";
@@ -37,10 +37,11 @@ impl Reader {
         }
     }
 
-    pub fn partial(&mut self, prog: &mut Vec<LispObject>, input: &String) -> Result<(), ReadError> {
+    pub fn partial(&mut self, symbols: &mut Symbols, prog: &mut Vec<LispObject>, input: &String)
+                   -> Result<(), ReadError> {
         let mut lexer = Lexer::new(input);
         loop {
-            match self.parse_sexp(&mut lexer) {
+            match self.parse_sexp(symbols, &mut lexer) {
                 Ok(Some(sexp)) => prog.push(sexp),
                 Ok(None) => return Ok(()),
                 Err(s) => return Err(s),
@@ -48,7 +49,8 @@ impl Reader {
         }
     }
 
-    fn parse_sexp(&mut self, lexer: &mut Lexer) -> Result<Option<LispObject>, ReadError> {
+    fn parse_sexp(&mut self, symbols: &mut Symbols, lexer: &mut Lexer)
+                  -> Result<Option<LispObject>, ReadError> {
         loop {
             match lexer.next() {
                 Some(Tokens::String(_))
@@ -75,7 +77,7 @@ impl Reader {
                         return Ok(Some(a))
                     },
                 Some(Tokens::Object(ObjectT::Symbol(s)))
-                    => if let Some(a) = self.handle_atom(LispObject::Symbol(s)) {
+                    => if let Some(a) = self.handle_atom(LispObject::Symbol(symbols.intern(&s))) {
                         return Ok(Some(a))
                     },
                 Some(Tokens::Object(ObjectT::StartString))

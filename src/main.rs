@@ -5,9 +5,11 @@ use std::fmt;
 
 use lisp::{
     reader::{Reader, ReadError},
+    SpecialForm,
     LispObject,
     EvalError,
     Env,
+    Symbols,
     create_root};
 
 fn print_underline(start: usize, end: usize) {
@@ -36,9 +38,9 @@ fn handle_read_error(input: &String, result: Result<(), ReadError>) -> Result<()
     Ok(())
 }
 
-fn handle_failed_form(form: &LispObject, stack: &[usize]) -> (String, usize, usize) {
+fn handle_failed_form(sym: &Symbols, form: &LispObject, stack: &[usize]) -> (String, usize, usize) {
     if stack.len() == 0 {
-        let string = form.to_string();
+        let string = sym.serialize_object(form);
         let len = string.len();
         (string, 0, len)
     } else {
@@ -51,7 +53,7 @@ fn handle_failed_form(form: &LispObject, stack: &[usize]) -> (String, usize, usi
                 let mut string = "(".to_string();
                 for (index, object) in l.iter().enumerate() {
                     if index == offset {
-                        let (s, off0, off1) = handle_failed_form(object, &stack[0..stack_len]);
+                        let (s, off0, off1) = handle_failed_form(sym, object, &stack[0..stack_len]);
                         start = off0 + string.len();
                         end = off1 + string.len();
                         string.push_str(&s);
@@ -66,52 +68,90 @@ fn handle_failed_form(form: &LispObject, stack: &[usize]) -> (String, usize, usi
                 }
                 (string, start, end)
             },
-            _ => handle_failed_form(form, &stack[0..0])
+            _ => handle_failed_form(sym, form, &stack[0..0])
         }
     }
 }
 
-fn handle_eval_error(form: &LispObject, error: EvalError) {
-    let (string, start, end) = handle_failed_form(form, &error.trace[..]);
+fn handle_eval_error(sym: &Symbols, form: &LispObject, error: EvalError) {
+    let (string, start, end) = handle_failed_form(sym, form, &error.trace[..]);
     print_range_error(&string, &error, start, end);
 }
 
-fn apply(env: &mut Env, form: &Vec<LispObject>) -> Result<LispObject, EvalError> {
+fn apply_eval_args(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>)
+                   -> Result<Vec<LispObject>, EvalError> {
+    form[1..].iter().enumerate()
+        .map(|(index, object)| eval(sym, env, object)
+             .map_err(|e| e.trace(index + 1)))
+        .collect::<Result<Vec<LispObject>, EvalError>>()
+}
+
+fn assert_form_len(sf: &SpecialForm, form: &Vec<LispObject>, len: usize)
+                   -> Result<(), EvalError> {
+    let actual_len = form.len();
+    if actual_len != len {
+        Err(EvalError::new(format!("special form {} requires exactly {} arguments, got {}",
+                                   sf.to_string(), len, actual_len)))
+    } else {
+        Ok(())
+    }
+}
+
+fn apply(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>) -> Result<LispObject, EvalError> {
     if form.len() == 0 {
         return Err(EvalError::new("apply received empty form".to_string()))
     }
 
-    let args: Vec<LispObject> = form[1..].iter().enumerate()
-        .map(|(index, object)| eval(env, object)
-             .map_err(|e| e.trace(index + 1)))
-        .collect::<Result<Vec<LispObject>, EvalError>>()?;
-
-    let head = eval(env, &form[0])
+    let head = eval(sym, env, &form[0])
         .map_err(|e| e.trace(0))?;
 
     match head {
-        LispObject::Native(f) => f(&args[..]),
+        LispObject::SpecialForm(SpecialForm::If)
+            => Err(EvalError::new("TODO implement if".to_string()).trace(0)),
+        LispObject::SpecialForm(SpecialForm::Def) => {
+            assert_form_len(&SpecialForm::Def, form, 3)?;
+            match form[1] {
+                LispObject::Symbol(s) => {
+                    let value = eval(sym, env, &form[2])
+                        .map_err(|e| e.trace(2))?;
+                    env.set(s, value.clone());
+                    Ok(value)
+                },
+                _ => Err(EvalError::new("special form def must have a symbol in 1st place"
+                                        .to_string())
+                         .trace(1))
+            }
+        },
+        LispObject::Native(f) => {
+            let args = apply_eval_args(sym, env, form)?;
+            f(&args[..])
+        }
         _ => Err(EvalError::new("apply only implemented for LispObject::Native".to_string()).trace(0))
     }
 }
 
-fn eval(env: &mut Env, object: &LispObject) -> Result<LispObject, EvalError> {
+fn eval(sym: &Symbols, env: &mut Env, object: &LispObject) -> Result<LispObject, EvalError> {
     match object {
-        LispObject::List(l)   => apply(env, &l),
-        LispObject::Symbol(s) => match env.resolve(&s[..]) {
+        LispObject::List(l)   => apply(sym, env, &l),
+        LispObject::Symbol(s) => match env.resolve(s) {
             Some(object) => Ok(object.clone()),
-            None =>         Err(EvalError::new(format!("Unbound symbol '{}'", s)))
+            None =>         Err(EvalError::new(format!("Unbound symbol '{}'",
+                                                       sym.as_string(s).unwrap_or("~~uninterned~~"))))
         }
         LispObject::String(s) => Ok(LispObject::String(s.to_string())),
         LispObject::Number(n) => Ok(LispObject::Number(*n)),
         LispObject::Native(f) => Ok(LispObject::Native(*f)),
+        LispObject::SpecialForm(_)
+            => Err(EvalError::new(
+                format!("Unexpected special form. This is probably an internal error.")))
     }
 }
 
 fn main() {
     let mut rl = Editor::<()>::new();
-    let mut env: Env = create_root();
-    let mut reader: Reader = Reader::new();
+    let mut symbols = Symbols::new();
+    let mut env = create_root(&mut symbols);
+    let mut reader = Reader::new();
 
     loop {
         let reader_stack = reader.len();
@@ -123,11 +163,11 @@ fn main() {
         match rl.readline(&prompt[..]) {
             Ok(line) => {
                 let mut prog: Vec<LispObject> = vec![];
-                match reader.partial(&mut prog, &line) {
+                match reader.partial(&mut symbols, &mut prog, &line) {
                     Ok(()) => for obj in prog {
-                        match eval(&mut env, &obj) {
+                        match eval(&symbols, &mut env, &obj) {
                             Ok(object) => println!("{}", &object),
-                            Err(e) => handle_eval_error(&obj, e),
+                            Err(e) => handle_eval_error(&symbols, &obj, e),
                         }
                     }
                     result @ _ => if let Err(e) = handle_read_error(&line, result) {
