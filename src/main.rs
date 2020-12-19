@@ -110,8 +110,6 @@ fn apply(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>) -> Result<LispObj
             assert_exact_form_args(&form[1..], 2, || "special form def".to_string())?;
             match form[1] {
                 LispObject::Symbol(s) => {
-                    // TODO def should set in global env,
-                    //      let establishes local bindings
                     let value = eval(sym, env, &form[2])
                         .map_err(|e| e.trace(2))?;
                     env.set(s, value.clone());
@@ -151,9 +149,30 @@ fn apply(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>) -> Result<LispObj
                 }
             },
         LispObject::SpecialForm(SpecialForm::Let)
-            => Err(EvalError::new("TODO implement special form let".to_string()).trace(0)),
+            => {
+                // TODO set trace correctly
+                assert_min_form_args(&form[1..], 2, || "special form let".to_string())?;
+                // let bindings = form[1].as_list()
+                //     .map_err(|e| e.trace(1))?;
+                // let evaled_bindings = bindings.iter().enumerate()
+                //     .map(|binding| {
+                //         let binding = binding.as_list()
+                //             .map_err(|e|.trace(index).trace(1))?;
+                //         let s = binding[0].as_symbol()
+                //             .map_err(|e| e.trace(0).trace(index).trace(1))?;
+                //         let v = eval(sym, env, binding[1])
+                //             .map_err(|e| e.trace(0).trace(index).trace(1))?;
+                //         (s, v)
+                //     })
+                //     .collect<Result<Vec<Symbol, LispObject>>>();
+
+                // let mut env = env.derive();
+                // evaled_bindings.for_each(|(sym, value)| env.set(*sym, value));
+
+                Err(EvalError::new("TODO implement special form let".to_string()).trace(0))
+            },
         LispObject::Lambda(params, forms) => {
-            assert_exact_form_args(&form[1..], params.len(), || ("lambda".to_string()))?;
+            assert_exact_form_args(&form[1..], params.len(), || "lambda".to_string())?;
             let args = apply_eval_args(sym, env, form)?;
             let mut env = env.derive();
             params.iter().zip(args)

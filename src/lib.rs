@@ -87,12 +87,21 @@ impl<'a> Env<'a> {
         }
     }
 
-    pub fn derive(&self) -> Env {
+    pub fn derive<'b>(&mut self) -> Env where 'a: 'b {
         Env {
             vars: HashMap::new(),
             parent: Some(self),
         }
     }
+
+    // pub fn global(&mut self, key: Symbol, value: LispObject) {
+    //     match self.parent {
+    //         Some(scope) => scope.global(key, value),
+    //         None => {
+    //             self.vars.insert(key, value);
+    //         },
+    //     }
+    // }
 
     pub fn set(&mut self, key: Symbol, value: LispObject) {
         self.vars.insert(key, value);
