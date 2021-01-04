@@ -74,61 +74,54 @@ impl Symbols {
     }
 }
 
-pub struct Env<'a> {
-    vars: HashMap<Symbol, LispObject>,
-    parent: Option<&'a Env<'a>>,
+pub struct Env {
+    vars: Vec<HashMap<Symbol, LispObject>>,
 }
 
-impl<'a> Env<'a> {
-    fn root() -> Env<'static> {
+impl Env {
+    pub fn new() -> Env {
         Env {
-            vars: HashMap::new(),
-            parent: None,
+            vars: vec![HashMap::new()],
         }
     }
 
-    pub fn derive<'b>(&mut self) -> Env where 'a: 'b {
-        Env {
-            vars: HashMap::new(),
-            parent: Some(self),
-        }
+    pub fn push_scope(&mut self) {
+        self.vars.push(HashMap::new());
     }
 
-    // pub fn global(&mut self, key: Symbol, value: LispObject) {
-    //     match self.parent {
-    //         Some(scope) => scope.global(key, value),
-    //         None => {
-    //             self.vars.insert(key, value);
-    //         },
-    //     }
-    // }
+    pub fn pop_scope(&mut self) {
+        self.vars.pop();
+    }
 
     pub fn set(&mut self, key: Symbol, value: LispObject) {
-        self.vars.insert(key, value);
+        self.vars.last_mut().and_then(|v| v.insert(key, value));
+    }
+
+    pub fn global(&mut self, key: Symbol, value: LispObject) {
+        self.vars.first_mut().and_then(|v| v.insert(key, value));
     }
 
     pub fn resolve(&self, key: &Symbol) -> Option<&LispObject> {
-        match self.vars.get(key) {
-            Some(value) => Some(value),
-            None => match self.parent {
-                Some(scope) => scope.resolve(key),
+        match self.vars.iter().rev()
+            .find(|scope| scope.contains_key(key)) {
+                Some(scope) => scope.get(key),
                 None => None,
+
             }
-        }
     }
 }
 
 fn set_native(env: &mut Env, key: Symbol, value: Native) {
-    env.set(key, LispObject::Native(value));
+    env.global(key, LispObject::Native(value));
 }
 
 fn set_special(sym: &mut Symbols, env: &mut Env, sf: SpecialForm) {
-    env.set(sym.intern(&sf.to_string()),
-            LispObject::SpecialForm(sf));
+    env.global(sym.intern(&sf.to_string()),
+               LispObject::SpecialForm(sf));
 }
 
-pub fn create_root(symbols: &mut Symbols) -> Env<'static> {
-    let mut root = Env::root();
+pub fn create_root(symbols: &mut Symbols) -> Env {
+    let mut root = Env::new();
     set_special(symbols, &mut root, SpecialForm::Def);
     set_special(symbols, &mut root, SpecialForm::Fn);
     set_special(symbols, &mut root, SpecialForm::If);

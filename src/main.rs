@@ -97,6 +97,14 @@ fn apply_eval_args(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>)
         .collect::<Result<Vec<LispObject>, EvalError>>()
 }
 
+fn in_scope<T, F>(env: &mut Env, f: F) -> Result<T, EvalError>
+where F: FnMut(&mut Env) -> Result<T, EvalError> {
+    env.push_scope();
+    let res = f(env);
+    env.pop_scope();
+    res
+}
+
 fn apply(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>) -> Result<LispObject, EvalError> {
     if form.len() == 0 {
         return Err(EvalError::new("apply received empty form".to_string()))
@@ -174,15 +182,18 @@ fn apply(sym: &Symbols, env: &mut Env, form: &Vec<LispObject>) -> Result<LispObj
         LispObject::Lambda(params, forms) => {
             assert_exact_form_args(&form[1..], params.len(), || "lambda".to_string())?;
             let args = apply_eval_args(sym, env, form)?;
-            let mut env = env.derive();
-            params.iter().zip(args)
-                .for_each(|(sym, value)| env.set(*sym, value));
+
             // TODO need a new entry for stack trace, as we're
             //      descending into a new set of forms here
-            let result = forms.iter().enumerate()
-                .map(|(index, object)| eval(sym, &mut env, object)
-                     .map_err(|e| EvalError::new(e.message)))
-                .collect::<Result<Vec<LispObject>, EvalError>>()?;
+            let result = in_scope(env, |mut env| {
+                params.iter().zip(args)
+                    .for_each(|(sym, value)| env.set(*sym, value));
+                forms.iter().enumerate()
+                    .map(|(index, object)| eval(sym, &mut env, object)
+                         .map_err(|e| EvalError::new(e.message)))
+                    .collect::<Result<Vec<LispObject>, EvalError>>()
+            })?;
+
             Ok(result[result.len() -1].clone())
         }
         LispObject::Native(f) => {
