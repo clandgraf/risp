@@ -1,8 +1,57 @@
 use std::fmt;
 
+#[derive(Clone)]
+pub enum SpecialForm {
+    Def,
+    Set,
+    Fn,
+    If,
+    Progn,
+    Quote,
+}
+
+impl fmt::Display for SpecialForm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", match self {
+            SpecialForm::Def => "def",
+            SpecialForm::Set => "set",
+            SpecialForm::Fn => "fn",
+            SpecialForm::If => "if",
+            SpecialForm::Progn => "progn",
+            SpecialForm::Quote => "quote",
+        })
+    }
+}
+
+pub type Symbol = u64;
+
+pub type Sexpr = Vec<LispObject>;
+
+#[derive(Clone)]
+pub enum LispObject {
+    Bool(bool),
+    SpecialForm(SpecialForm),
+    Symbol(Symbol),
+    String(String),
+    Number(f64),
+    List(Sexpr),
+    Native(Native),
+    Lambda(Vec<Symbol>, Sexpr),
+}
+
+// When an error occurs during evaluation an Err(EvalError) is returned.
+// - frames contains the s-expressions that eval processed, resolved from
+//   function definitions.
+// - trace contains the position in the current frame where the error is
+//   occurred.
+
+pub type Trace = Vec<usize>;
+pub type Frame = (LispObject, Trace);
+
 pub struct EvalError {
-    pub message: String,
-    pub trace: Vec<usize>,
+    pub message: String,      // Message describing the error
+    pub frames: Vec<Frame>,   // Already handled frames
+    pub trace: Trace,         // Current trace
 }
 
 impl fmt::Display for EvalError {
@@ -16,6 +65,7 @@ impl EvalError {
         EvalError {
             message: message,
             trace: vec![],
+            frames: vec![],
         }
     }
 
@@ -23,42 +73,15 @@ impl EvalError {
         self.trace.push(index);
         self
     }
-}
 
-pub type Native = fn(&[LispObject]) -> Result<LispObject, EvalError>;
-
-#[derive(Clone)]
-pub enum SpecialForm {
-    Def,
-    Fn,
-    If,
-    Let,
-}
-
-impl fmt::Display for SpecialForm {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            SpecialForm::Def => "def",
-            SpecialForm::Fn => "fn",
-            SpecialForm::If => "if",
-            SpecialForm::Let => "let",
-        })
+    pub fn frame(mut self, expr: LispObject) -> EvalError {
+        self.frames.push((expr, self.trace));
+        self.trace = vec![];
+        self
     }
 }
 
-pub type Symbol = u64;
-
-#[derive(Clone)]
-pub enum LispObject {
-    Bool(bool),
-    SpecialForm(SpecialForm),
-    Symbol(Symbol),
-    String(String),
-    Number(f64),
-    List(Vec<LispObject>),
-    Native(Native),
-    Lambda(Vec<Symbol>, Vec<LispObject>),
-}
+pub type Native = fn(&[LispObject]) -> Result<LispObject, EvalError>;
 
 impl LispObject {
     pub fn as_bool(&self) -> Result<bool, EvalError> {
@@ -82,7 +105,7 @@ impl LispObject {
         }
     }
 
-    pub fn as_list(&self) -> Result<Vec<LispObject>, EvalError> {
+    pub fn as_list(&self) -> Result<Sexpr, EvalError> {
         match self {
             LispObject::List(l) => Ok(l.clone()),
             _ => Err(EvalError::new("Expected a list".to_string())),

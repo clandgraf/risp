@@ -27,6 +27,12 @@ impl fmt::Display for ReadError {
     }
 }
 
+pub enum ReaderFrame {
+    Sexpr(Vec<LispObject>),
+    Quote,
+    Qquote,
+}
+
 pub struct Reader {
     stack: Vec<Vec<LispObject>>
 }
@@ -90,7 +96,12 @@ impl Reader {
                         return Ok(Some(a))
                     },
                 Some(Tokens::Object(ObjectT::StartString))
-                    => return self.parse_string(lexer).map(|s| Some(s)),
+                    => {
+                        let s = self.parse_string(lexer)?;
+                        if let Some(a) = self.handle_atom(s) {
+                            return Ok(Some(a))
+                        }
+                    }
             }
         }
     }

@@ -123,9 +123,11 @@ fn set_special(sym: &mut Symbols, env: &mut Env, sf: SpecialForm) {
 pub fn create_root(symbols: &mut Symbols) -> Env {
     let mut root = Env::new();
     set_special(symbols, &mut root, SpecialForm::Def);
+    set_special(symbols, &mut root, SpecialForm::Set);
     set_special(symbols, &mut root, SpecialForm::Fn);
     set_special(symbols, &mut root, SpecialForm::If);
-    set_special(symbols, &mut root, SpecialForm::Let);
+    set_special(symbols, &mut root, SpecialForm::Progn);
+    set_special(symbols, &mut root, SpecialForm::Quote);
     set_native(&mut root, symbols.intern("+"), native::add);
     set_native(&mut root, symbols.intern("*"), native::multiply);
     set_native(&mut root, symbols.intern("-"), native::minus);

@@ -2,6 +2,8 @@ use logos::{Logos, Lexer as LLexer};
 
 #[derive(Logos, Clone, Debug, PartialEq)]
 pub enum ObjectT {
+    // #[token("'")]
+    // Quote,
     #[token("#t")]
     True,
     #[token("#f")]
@@ -10,11 +12,11 @@ pub enum ObjectT {
     LBrace,
     #[token(")", priority = 4)]
     RBrace,
-    #[regex("-?(([0-9]*\\.[0-9]+|[0-9]+))", |lex| lex.slice().parse(), priority = 3)]
+    #[regex("-?([0-9]*\\.?[0-9]+)", |lex| lex.slice().parse(), priority = 3)]
     Number(f64),
     #[token("\"", priority = 2)]
     StartString,
-    #[regex("[^\\s\\(\\)]+", |lex| lex.slice().to_string(), priority = 1)]
+    #[regex("[^\"\\s\\(\\)][^\\s\\(\\)]*", |lex| lex.slice().to_string(), priority = 1)]
     Symbol(String),
     #[error]
     #[regex(r"[ \t\n\f]+", logos::skip)]
