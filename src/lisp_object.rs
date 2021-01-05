@@ -6,7 +6,7 @@ pub enum SpecialForm {
     Set,
     Fn,
     If,
-    Progn,
+    Begin,
     Quote,
 }
 
@@ -17,7 +17,7 @@ impl fmt::Display for SpecialForm {
             SpecialForm::Set => "set",
             SpecialForm::Fn => "fn",
             SpecialForm::If => "if",
-            SpecialForm::Progn => "progn",
+            SpecialForm::Begin => "begin",
             SpecialForm::Quote => "quote",
         })
     }

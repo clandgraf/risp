@@ -111,8 +111,8 @@ fn special_form(sym: &Symbols, env: &mut Env, sf: SpecialForm, tail: &[LispObjec
             assert_exact_form_args(tail, 1, || "special form quote".to_string())?;
             Ok(tail[0].clone())
         }
-        SpecialForm::Progn => {
-            assert_min_form_args(tail, 1, || "special form fn".to_string())?;
+        SpecialForm::Begin => {
+            assert_min_form_args(tail, 1, || "special form begin".to_string())?;
             let result = tail.iter().enumerate()
                 .map(|(index, object)| eval(sym, env, object)
                      .map_err(|e| e.trace(index + 1)))
