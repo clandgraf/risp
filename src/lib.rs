@@ -132,5 +132,7 @@ pub fn create_root(symbols: &mut Symbols) -> Env {
     set_native(&mut root, symbols.intern("*"), native::multiply);
     set_native(&mut root, symbols.intern("-"), native::minus);
     set_native(&mut root, symbols.intern("="), native::equal);
+    set_native(&mut root, symbols.intern("first"), native::first);
+    set_native(&mut root, symbols.intern("rest"), native::rest);
     root
 }

@@ -43,3 +43,15 @@ pub fn equal(args: &[LispObject]) -> Result<LispObject, EvalError> {
         _ => Err(EvalError::new("equal not implemented for type".to_string()).trace(1)),
     }
 }
+
+pub fn first(args: &[LispObject]) -> Result<LispObject, EvalError> {
+    assert_exact_form_args(args, 1, || "inbuild 'first'".to_string())?;
+    let lst = args[0].as_list()?;
+    Ok(lst[0].clone())
+}
+
+pub fn rest(args: &[LispObject]) -> Result<LispObject, EvalError> {
+    assert_exact_form_args(args, 1, || "inbuild 'first'".to_string())?;
+    let lst = args[0].as_list()?;
+    Ok(LispObject::List(lst[1..].to_vec()))
+}
