@@ -41,6 +41,26 @@ impl Symbols {
         }
     }
 
+    pub fn symbol(&mut self, name: &str) -> LispObject {
+        LispObject::Symbol(self.intern(name))
+    }
+
+    pub fn quote(&mut self, obj: LispObject) -> LispObject {
+        LispObject::List(vec![self.symbol("quote"), obj])
+    }
+
+    pub fn quasi_quote(&mut self, obj: LispObject) -> LispObject {
+        LispObject::List(vec![self.symbol("quasiquote"), obj])
+    }
+
+    pub fn unquote(&mut self, obj: LispObject) -> LispObject {
+        LispObject::List(vec![self.symbol("unquote"), obj])
+    }
+
+    pub fn unquote_splice(&mut self, obj: LispObject) -> LispObject {
+        LispObject::List(vec![self.symbol("unquote-splice"), obj])
+    }
+
     pub fn as_string(&self, sym: &Symbol) -> Option<&str> {
         self.reverse.get(sym).map(|s| &s[..])
     }

@@ -2,17 +2,17 @@ use logos::{Logos, Lexer as LLexer};
 
 #[derive(Logos, Clone, Debug, PartialEq)]
 pub enum ObjectT {
-    #[token("'")]
+    #[token("'", priority = 5)]
     Quote,
-    #[token("`")]
+    #[token("`", priority = 5)]
     QuasiQuote,
-    #[token(",")]
+    #[token(",", priority = 5)]
     Unquote,
-    #[token(",@")]
+    #[token(",@", priority = 5)]
     UnquoteSplice,
-    #[token("#t")]
+    #[token("#t", priority = 5)]
     True,
-    #[token("#f")]
+    #[token("#f", priority = 5)]
     False,
     #[token("(", priority = 4)]
     LBrace,
@@ -22,7 +22,7 @@ pub enum ObjectT {
     Number(f64),
     #[token("\"", priority = 2)]
     StartString,
-    #[regex("[^\"\\s\\(\\)][^\\s\\(\\)]*", |lex| lex.slice().to_string(), priority = 1)]
+    #[regex("[^'`,\"\\s\\(\\)][^\\s\\(\\)]*", |lex| lex.slice().to_string(), priority = 1)]
     Symbol(String),
     #[error]
     #[regex(r"[ \t\n\f]+", logos::skip)]

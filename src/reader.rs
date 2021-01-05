@@ -70,50 +70,76 @@ impl Reader {
                 None
                     => return Ok(None),
 
+                // Starting an expression that is not an atom. This will be built on the
+                // stack and completed either by encountering the associated expression of
+                // the quote or the closing brace.
+                Some(Tokens::Object(ObjectT::Quote))
+                    => self.stack.push(ReaderFrame::Quote),
+                Some(Tokens::Object(ObjectT::QuasiQuote))
+                    => self.stack.push(ReaderFrame::QuasiQuote),
+                Some(Tokens::Object(ObjectT::Unquote))
+                    => self.stack.push(ReaderFrame::Unquote),
+                Some(Tokens::Object(ObjectT::UnquoteSplice))
+                    => self.stack.push(ReaderFrame::UnquoteSplice),
                 Some(Tokens::Object(ObjectT::LBrace))
-                    => self.stack.push(vec![]),
+                    => self.stack.push(ReaderFrame::Sexpr(vec![])),
+
+                // Finishing an expression
                 Some(Tokens::Object(ObjectT::RBrace))
-                    => match self.stack.len() {
-                        0 => return Err(ReadError::UnexpectedRbrace(lexer.span())),
-                        1 => return Ok(Some(self.pop_list())),
-                        _ => {
-                            let sxp = self.pop_list();
-                            self.push_sexp(sxp);
+                    => {
+                        let obj = self.pop_list(lexer)?;
+                        if let Some(a) = self.handle_obj(symbols, obj) {
+                            return Ok(Some(a))
                         }
                     },
-                Some(Tokens::Object(ObjectT::True))
-                    => if let Some(a) = self.handle_atom(LispObject::Bool(true)) {
-                        return Ok(Some(a))
-                    },
-                Some(Tokens::Object(ObjectT::False))
-                    => if let Some(a) = self.handle_atom(LispObject::Bool(false)) {
-                        return Ok(Some(a))
-                    },
-                Some(Tokens::Object(ObjectT::Number(n)))
-                    => if let Some(a) = self.handle_atom(LispObject::Number(n)) {
-                        return Ok(Some(a))
-                    },
                 Some(Tokens::Object(ObjectT::Symbol(s)))
-                    => if let Some(a) = self.handle_atom(LispObject::Symbol(symbols.intern(&s))) {
-                        return Ok(Some(a))
+                    => {
+                        let obj = symbols.symbol(&s);
+                        if let Some(a) = self.handle_obj(symbols, obj) {
+                            return Ok(Some(a))
+                        }
                     },
                 Some(Tokens::Object(ObjectT::StartString))
                     => {
-                        let s = self.parse_string(lexer)?;
-                        if let Some(a) = self.handle_atom(s) {
+                        let obj = self.parse_string(lexer)?;
+                        if let Some(a) = self.handle_obj(symbols, obj) {
                             return Ok(Some(a))
                         }
                     }
+                Some(Tokens::Object(ObjectT::True))
+                    => if let Some(a) = self.handle_obj(symbols, LispObject::Bool(true)) {
+                        return Ok(Some(a))
+                    },
+                Some(Tokens::Object(ObjectT::False))
+                    => if let Some(a) = self.handle_obj(symbols, LispObject::Bool(false)) {
+                        return Ok(Some(a))
+                    },
+                Some(Tokens::Object(ObjectT::Number(n)))
+                    => if let Some(a) = self.handle_obj(symbols, LispObject::Number(n)) {
+                        return Ok(Some(a))
+                    },
             }
         }
     }
 
-    fn handle_atom(&mut self, a: LispObject) -> Option<LispObject> {
-        match self.stack.len() {
-            0 => return Some(a),
-            _ => self.push_sexp(a)
+    fn handle_obj(&mut self, symbols: &mut Symbols, obj: LispObject) -> Option<LispObject> {
+        let mut obj = obj;
+        loop {
+            match self.stack.pop() {
+                Some(frame) => match frame {
+                    ReaderFrame::Quote          => obj = symbols.quote(obj),
+                    ReaderFrame::QuasiQuote     => obj = symbols.quasi_quote(obj),
+                    ReaderFrame::Unquote        => obj = symbols.unquote(obj),
+                    ReaderFrame::UnquoteSplice  => obj = symbols.unquote_splice(obj),
+                    ReaderFrame::Sexpr(mut lst) => {
+                        lst.push(obj);
+                        self.stack.push(ReaderFrame::Sexpr(lst));
+                        return None
+                    },
+                },
+                None => return Some(obj)
+            }
         }
-        None
     }
 
     fn parse_string(&mut self, lexer: &mut Lexer) -> Result<LispObject, ReadError> {
@@ -137,14 +163,12 @@ impl Reader {
         res.map(|()| LispObject::String(string))
     }
 
-    fn push_sexp(&mut self, obj: LispObject) {
-        let mut l = self.stack.pop().unwrap();
-        l.push(obj);
-        self.stack.push(l);
-    }
-
-    fn pop_list(&mut self) -> LispObject {
-        LispObject::List(self.stack.pop().unwrap())
+    fn pop_list(&mut self, lexer: &mut Lexer) -> Result<LispObject, ReadError> {
+        if let Some(ReaderFrame::Sexpr(lst)) = self.stack.pop() {
+            Ok(LispObject::List(lst))
+        } else {
+            Err(ReadError::UnexpectedRbrace(lexer.span()))
+        }
     }
 
     pub fn len(&self) -> usize {
