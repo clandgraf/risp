@@ -30,11 +30,13 @@ impl fmt::Display for ReadError {
 pub enum ReaderFrame {
     Sexpr(Vec<LispObject>),
     Quote,
-    Qquote,
+    QuasiQuote,
+    Unquote,
+    UnquoteSplice,
 }
 
 pub struct Reader {
-    stack: Vec<Vec<LispObject>>
+    stack: Vec<ReaderFrame>
 }
 
 impl Reader {

@@ -2,8 +2,14 @@ use logos::{Logos, Lexer as LLexer};
 
 #[derive(Logos, Clone, Debug, PartialEq)]
 pub enum ObjectT {
-    // #[token("'")]
-    // Quote,
+    #[token("'")]
+    Quote,
+    #[token("`")]
+    QuasiQuote,
+    #[token(",")]
+    Unquote,
+    #[token(",@")]
+    UnquoteSplice,
     #[token("#t")]
     True,
     #[token("#f")]
