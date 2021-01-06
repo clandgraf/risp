@@ -18,15 +18,33 @@ pub struct Symbols {
     registry: HashMap<String, Symbol>,
     reverse: HashMap<Symbol, String>,
     next_id: Symbol,
+
+    pub sym_quote: Symbol,
+    pub sym_quasiquote: Symbol,
+    pub sym_unquote: Symbol,
+    pub sym_unquote_splice: Symbol,
+    pub sym_rest: Symbol,
 }
 
 impl Symbols {
     pub fn new() -> Symbols {
-        Symbols {
+        let mut symbols = Symbols {
             registry: HashMap::new(),
             reverse: HashMap::new(),
             next_id: 0,
-        }
+
+            sym_quote: 0,
+            sym_quasiquote: 0,
+            sym_unquote: 0,
+            sym_unquote_splice: 0,
+            sym_rest: 0,
+        };
+        symbols.sym_quote = symbols.intern("quote");
+        symbols.sym_quasiquote = symbols.intern("quasiquote");
+        symbols.sym_unquote = symbols.intern("unquote");
+        symbols.sym_unquote_splice = symbols.intern("unquote-splice");
+        symbols.sym_rest = symbols.intern("&rest");
+        symbols
     }
 
     pub fn intern(&mut self, name: &str) -> Symbol {
@@ -46,19 +64,19 @@ impl Symbols {
     }
 
     pub fn quote(&mut self, obj: LispObject) -> LispObject {
-        LispObject::List(vec![self.symbol("quote"), obj])
+        LispObject::List(vec![LispObject::Symbol(self.sym_quote), obj])
     }
 
     pub fn quasi_quote(&mut self, obj: LispObject) -> LispObject {
-        LispObject::List(vec![self.symbol("quasiquote"), obj])
+        LispObject::List(vec![LispObject::Symbol(self.sym_quasiquote), obj])
     }
 
     pub fn unquote(&mut self, obj: LispObject) -> LispObject {
-        LispObject::List(vec![self.symbol("unquote"), obj])
+        LispObject::List(vec![LispObject::Symbol(self.sym_unquote), obj])
     }
 
     pub fn unquote_splice(&mut self, obj: LispObject) -> LispObject {
-        LispObject::List(vec![self.symbol("unquote-splice"), obj])
+        LispObject::List(vec![LispObject::Symbol(self.sym_unquote_splice), obj])
     }
 
     pub fn as_string(&self, sym: &Symbol) -> Option<&str> {
@@ -72,11 +90,19 @@ impl Symbols {
             .join(" ")
     }
 
-    fn params_to_string(&self, ps: &Vec<Symbol>) -> String {
+    fn pos_params_to_string(&self, ps: &Vec<Symbol>) -> String {
         ps.iter()
             .map(|o| self.as_string(o).unwrap_or("~~uninterned~~"))
             .collect::<Vec<&str>>()
             .join(" ")
+    }
+
+    fn rest_param_to_string(&self, sym: Option<Symbol>) -> String {
+        match sym {
+            Some(s) => format!(" &rest {}", self.as_string(&s)
+                               .unwrap_or("~~uninterned~~")),
+            None => "".to_string(),
+        }
     }
 
     pub fn serialize_object(&self, obj: &LispObject) -> String {
@@ -85,11 +111,16 @@ impl Symbols {
                                              .unwrap_or("~~uninterned~~")),
             LispObject::List(l) => format!("({})", self.form_to_string(l)),
             LispObject::Lambda(ps, fs) =>
-                format!("(fn ({}) {})",
-                        self.params_to_string(ps),
+                format!("(fn ({}{}) {})",
+                        self.pos_params_to_string(&ps.0),
+                        self.rest_param_to_string(ps.1),
                         self.form_to_string(fs)),
-
-            _ => obj.to_string(),
+            LispObject::Bool(true) => "#t".to_string(),
+            LispObject::Bool(false) => "#f".to_string(),
+            LispObject::SpecialForm(sf) => format!("{}", sf),
+            LispObject::String(s) => format!("\"{}\"", s),
+            LispObject::Number(n) => format!("{}", n.to_string()),
+            LispObject::Native(_) => "~~native~~".to_string(),
         }
     }
 }
@@ -146,6 +177,7 @@ pub fn create_root(symbols: &mut Symbols) -> Env {
     set_special(symbols, &mut root, SpecialForm::Set);
     set_special(symbols, &mut root, SpecialForm::Fn);
     set_special(symbols, &mut root, SpecialForm::If);
+    set_special(symbols, &mut root, SpecialForm::Let);
     set_special(symbols, &mut root, SpecialForm::Begin);
     set_special(symbols, &mut root, SpecialForm::Quote);
     set_native(&mut root, symbols.intern("+"), native::add);

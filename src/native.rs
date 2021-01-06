@@ -5,8 +5,8 @@ use crate::{
     },
     lisp_object_util::{
         as_numbers,
-        assert_min_form_args,
-        assert_exact_form_args,
+        Match,
+        assert_args,
     },
 };
 
@@ -17,7 +17,7 @@ pub fn add(args: &[LispObject]) -> Result<LispObject, EvalError> {
 }
 
 pub fn minus(args: &[LispObject]) -> Result<LispObject, EvalError> {
-    assert_min_form_args(args, 2, || "inbuild '-'".to_string())?;
+    assert_args(Match::Min, args, 2, || "inbuild '-'".to_string())?;
     let min = args[0].as_number()
         .map_err(|err| err.trace(1))?;
     let sub = as_numbers(&args[1..])
@@ -33,7 +33,7 @@ pub fn multiply(args: &[LispObject]) -> Result<LispObject, EvalError> {
 }
 
 pub fn equal(args: &[LispObject]) -> Result<LispObject, EvalError> {
-    assert_exact_form_args(args, 2, || "inbuild '-'".to_string())?;
+    assert_args(Match::Exact, args, 2, || "inbuild '-'".to_string())?;
     match args[0] {
         LispObject::Number(op0) => {
             let op1 = args[1].as_number()
@@ -45,13 +45,13 @@ pub fn equal(args: &[LispObject]) -> Result<LispObject, EvalError> {
 }
 
 pub fn first(args: &[LispObject]) -> Result<LispObject, EvalError> {
-    assert_exact_form_args(args, 1, || "inbuild 'first'".to_string())?;
+    assert_args(Match::Exact, args, 1, || "inbuild 'first'".to_string())?;
     let lst = args[0].as_list()?;
     Ok(lst[0].clone())
 }
 
 pub fn rest(args: &[LispObject]) -> Result<LispObject, EvalError> {
-    assert_exact_form_args(args, 1, || "inbuild 'first'".to_string())?;
+    assert_args(Match::Exact, args, 1, || "inbuild 'first'".to_string())?;
     let lst = args[0].as_list()?;
     Ok(LispObject::List(lst[1..].to_vec()))
 }

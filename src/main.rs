@@ -5,13 +5,15 @@ use std::fmt;
 
 use lisp::{
     lisp_object::{
+        Symbol,
+        ParamList,
         EvalError,
         LispObject,
         SpecialForm,
     },
     lisp_object_util::{
-        assert_exact_form_args,
-        assert_min_form_args,
+        Match,
+        assert_args,
         as_symbols,
     },
     reader::{
@@ -97,22 +99,58 @@ fn apply_eval_args(sym: &Symbols, env: &mut Env, tail: &[LispObject])
         .collect::<Result<Vec<LispObject>, EvalError>>()
 }
 
-fn in_scope<T, F>(env: &mut Env, mut f: F) -> Result<T, EvalError>
+fn in_scope<T, F>(
+    env: &mut Env,
+    binding: Option<(&ParamList, Vec<LispObject>)>,
+    mut f: F
+) -> Result<T, EvalError>
 where F: FnMut(&mut Env) -> Result<T, EvalError> {
     env.push_scope();
+    if let Some((params, mut args)) = binding {
+        if let Some(rest_symbol) = params.1 {
+            let rest_args = args.split_off(params.0.len());
+            env.set(rest_symbol, LispObject::List(rest_args));
+        }
+        params.0.iter().zip(args.into_iter())
+            .for_each(|(sym, value)| env.set(*sym, value));
+    }
     let res = f(env);
     env.pop_scope();
     res
 }
 
+fn split_param_list(lst: &mut Vec<Symbol>, rest_index: Option<usize>)
+                    -> Result<Option<Symbol>, EvalError> {
+    match rest_index {
+        None => Ok(None),
+        Some(rest_index) => if rest_index == lst.len() - 2 {
+            let rest = lst.split_off(rest_index)[1];
+            Ok(Some(rest))
+        } else {
+            Err(EvalError::new("&rest must be second to last in parameter list".to_string())
+                .trace(rest_index))
+        }
+    }
+}
+
+fn parse_param_list(symbols: &Symbols, lst: Vec<LispObject>) -> Result<ParamList, EvalError> {
+    let mut params = as_symbols(&lst)
+        .map_err(|(e, index)| e.trace(index))?;
+    let rest_index = params.iter().enumerate()
+        .find(|(_, sym)| **sym == symbols.sym_rest)
+        .map(|(index, _)| index);
+    let rest = split_param_list(&mut params, rest_index)?;
+    Ok((params, rest))
+}
+
 fn special_form(sym: &Symbols, env: &mut Env, sf: SpecialForm, tail: &[LispObject]) -> Result<LispObject, EvalError> {
     match sf {
         SpecialForm::Quote => {
-            assert_exact_form_args(tail, 1, || "special form quote".to_string())?;
+            assert_args(Match::Exact, tail, 1, || "special form quote".to_string())?;
             Ok(tail[0].clone())
         }
         SpecialForm::Begin => {
-            assert_min_form_args(tail, 1, || "special form begin".to_string())?;
+            assert_args(Match::Min, tail, 1, || "special form begin".to_string())?;
             let result = tail.iter().enumerate()
                 .map(|(index, object)| eval(sym, env, object)
                      .map_err(|e| e.trace(index + 1)))
@@ -120,7 +158,7 @@ fn special_form(sym: &Symbols, env: &mut Env, sf: SpecialForm, tail: &[LispObjec
             Ok(result[result.len() -1].clone())
         }
         SpecialForm::Def => {
-            assert_exact_form_args(tail, 2, || "special form def".to_string())?;
+            assert_args(Match::Exact, tail, 2, || "special form def".to_string())?;
             match tail[0] {
                 LispObject::Symbol(s) => {
                     let value = eval(sym, env, &tail[1])
@@ -134,7 +172,7 @@ fn special_form(sym: &Symbols, env: &mut Env, sf: SpecialForm, tail: &[LispObjec
             }
         },
         SpecialForm::Set => {
-            assert_exact_form_args(tail, 2, || "special form set".to_string())?;
+            assert_args(Match::Exact, tail, 2, || "special form set".to_string())?;
             match tail[0] {
                 LispObject::Symbol(s) => {
                     let value = eval(sym, env, &tail[1])
@@ -149,17 +187,17 @@ fn special_form(sym: &Symbols, env: &mut Env, sf: SpecialForm, tail: &[LispObjec
         },
         SpecialForm::Fn => {
             // TODO allow only lispobject instead of vec<lispobject> as second param
-            assert_min_form_args(tail, 2, || "special form fn".to_string())?;
+            assert_args(Match::Min, tail, 2, || "special form fn".to_string())?;
             let param_list = tail[0].as_list()
                 .map_err(|e| e.trace(1))?;
-            let params = as_symbols(&param_list)
-                .map_err(|(e, index)| e.trace(index).trace(1))?;
+            let params = parse_param_list(sym, param_list)
+                .map_err(|e| e.trace(1))?;
             let body = tail[1..].iter().cloned().collect();
             Ok(LispObject::Lambda(params, body))
         },
         SpecialForm::If => {
             // TODO allow only lispobject instead of vec<lispobject> as second param
-            assert_min_form_args(tail, 2, || "special form if".to_string())?;
+            assert_args(Match::Min, tail, 2, || "special form if".to_string())?;
             let predicate = eval(sym, env, &tail[0])
                 .and_then(|object| object.as_bool())
                 .map_err(|e| e.trace(1))?;
@@ -176,28 +214,29 @@ fn special_form(sym: &Symbols, env: &mut Env, sf: SpecialForm, tail: &[LispObjec
                 Ok(result[result.len() -1].clone())
             }
         },
-        // LispObject::SpecialForm(SpecialForm::Let) => {
-        // TODO set trace correctly
-        // assert_min_form_args(&form[1..], 2, || "special form let".to_string())?;
-        // let bindings = form[1].as_list()
-        //     .map_err(|e| e.trace(1))?;
-        // let evaled_bindings = bindings.iter().enumerate()
-        //     .map(|binding| {
-        //         let binding = binding.as_list()
-        //             .map_err(|e|.trace(index).trace(1))?;
-        //         let s = binding[0].as_symbol()
-        //             .map_err(|e| e.trace(0).trace(index).trace(1))?;
-        //         let v = eval(sym, env, binding[1])
-        //             .map_err(|e| e.trace(0).trace(index).trace(1))?;
-        //         (s, v)
-        //     })
-        //     .collect<Result<Vec<Symbol, LispObject>>>();
+        SpecialForm::Let => {
+            assert_args(Match::Min, tail, 2, || "special form let".to_string())?;
+            // let bindings = form[1].as_list()
+            //     .map_err(|e| e.trace(1))?;
+            // let evaled_bindings = bindings.iter().enumerate()
+            //     .map(|binding| {
+            //         let binding = binding.as_list()
+            //             .map_err(|e|.trace(index).trace(1))?;
+            //         let s = binding[0].as_symbol()
+            //             .map_err(|e| e.trace(0).trace(index).trace(1))?;
+            //         let v = eval(sym, env, binding[1])
+            //             .map_err(|e| e.trace(0).trace(index).trace(1))?;
+            //         (s, v)
+            //     })
+            //     .collect<Result<Vec<Symbol, LispObject>>>();
 
-        // let mut env = env.derive();
-        // evaled_bindings.for_each(|(sym, value)| env.set(*sym, value));
+            // let result = in_scope(env, |mut env| {
+            //     evaled_bindings.for_each(|(sym, value)| env.set(*sym, value));
 
-        // Err(EvalError::new("TODO implement special form let".to_string()).trace(0))
-        // },
+            // })
+
+            Err(EvalError::new("TODO implement special form let".to_string()).trace(0))
+        },
     }
 }
 
@@ -215,14 +254,16 @@ fn eval(sym: &Symbols, env: &mut Env, object: &LispObject) -> Result<LispObject,
             match head {
                 LispObject::SpecialForm(sf) => special_form(sym, env, sf, tail),
                 LispObject::Lambda(params, forms) => {
-                    assert_exact_form_args(tail, params.len(), || "lambda".to_string())?;
+                    let m = match params.1 {
+                        None    => Match::Exact,
+                        Some(_) => Match::Min,
+                    };
+                    assert_args(m, tail, params.0.len(), || "lambda".to_string())?;
                     let args = apply_eval_args(sym, env, tail)?;
 
                     // TODO need a new entry for stack trace, as we're
                     //      descending into a new set of forms here
-                    let result = in_scope(env, |mut env| {
-                        params.iter().zip(&args)
-                            .for_each(|(sym, value)| env.set(*sym, value.clone()));
+                    let result = in_scope(env, Some((&params, args)), |mut env| {
                         forms.iter().enumerate()
                             .map(|(index, object)| eval(sym, &mut env, object)
                                  .map_err(|e| EvalError::new(e.message)))

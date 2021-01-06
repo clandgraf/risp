@@ -6,6 +6,7 @@ pub enum SpecialForm {
     Set,
     Fn,
     If,
+    Let,
     Begin,
     Quote,
 }
@@ -17,6 +18,7 @@ impl fmt::Display for SpecialForm {
             SpecialForm::Set => "set",
             SpecialForm::Fn => "fn",
             SpecialForm::If => "if",
+            SpecialForm::Let => "let",
             SpecialForm::Begin => "begin",
             SpecialForm::Quote => "quote",
         })
@@ -27,6 +29,8 @@ pub type Symbol = u64;
 
 pub type Sexpr = Vec<LispObject>;
 
+pub type ParamList = (Vec<Symbol>, Option<Symbol>);
+
 #[derive(Clone)]
 pub enum LispObject {
     Bool(bool),
@@ -36,7 +40,7 @@ pub enum LispObject {
     Number(f64),
     List(Sexpr),
     Native(Native),
-    Lambda(Vec<Symbol>, Sexpr),
+    Lambda(ParamList, Sexpr),
 }
 
 // When an error occurs during evaluation an Err(EvalError) is returned.
@@ -110,50 +114,5 @@ impl LispObject {
             LispObject::List(l) => Ok(l.clone()),
             _ => Err(EvalError::new("Expected a list".to_string())),
         }
-    }
-}
-
-// impl fmt::Display for LispObject {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         write!(f, "{}", match self {
-//             LispObject::Symbol(s) => format!("{}:{}", s.to_string(), "sym"),
-//             LispObject::String(s) => format!("\"{}\":{}", s, "str"),
-//             LispObject::Number(n) => format!("{}:{}", n.to_string(), "num"),
-//             LispObject::List(l) => format!("({})", form_to_string(l)),
-//             LispObject::Native(_) => "~~native~~".to_string(),
-//         })
-//     }
-// }
-
-fn form_to_string(l: &Vec<LispObject>) -> String {
-    l.iter()
-        .map(|o| o.to_string())
-        .collect::<Vec<String>>()
-        .join(" ")
-}
-
-fn params_to_string(p: &Vec<Symbol>) -> String {
-    p.iter()
-        .map(|o| o.to_string())
-        .collect::<Vec<String>>()
-        .join(" ")
-}
-
-impl fmt::Display for LispObject {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            LispObject::Bool(true) => "#t".to_string(),
-            LispObject::Bool(false) => "#f".to_string(),
-            LispObject::SpecialForm(sf) => format!("{}", sf),
-            LispObject::Symbol(s) => format!("{}", s),
-            LispObject::String(s) => format!("\"{}\"", s),
-            LispObject::Number(n) => format!("{}", n.to_string()),
-            LispObject::List(l) => format!("({})", form_to_string(l)),
-            LispObject::Native(_) => "~~native~~".to_string(),
-            LispObject::Lambda(params, forms) =>
-                format!("(fn ({}) {})",
-                        params_to_string(params),
-                        form_to_string(forms)),
-        })
     }
 }

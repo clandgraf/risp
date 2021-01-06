@@ -4,23 +4,25 @@ use crate::lisp_object::{
     Symbol,
 };
 
-pub fn assert_exact_form_args(form: &[LispObject], len: usize, description: fn() -> String)
-                   -> Result<(), EvalError> {
-    let actual_len = form.len();
-    if actual_len != len {
-        Err(EvalError::new(format!("{} requires exactly {} arguments, got {}",
-                                   description(), len, actual_len)))
-    } else {
-        Ok(())
-    }
+pub enum Match {
+    Exact,
+    Min,
 }
 
-pub fn assert_min_form_args(form: &[LispObject], len: usize, description: fn() -> String)
+pub fn assert_args(m: Match, form: &[LispObject], len: usize, description: fn() -> String)
                    -> Result<(), EvalError> {
     let actual_len = form.len();
-    if actual_len < len {
-        Err(EvalError::new(format!("{} requires at least {} arguments, got {}",
-                                   description(), len, actual_len)))
+    let pred = match m {
+        Match::Exact => actual_len != len,
+        Match::Min => actual_len < len,
+    };
+    if pred {
+        let s = match m {
+            Match::Exact => "exactly",
+            Match::Min   => "at least",
+        };
+        Err(EvalError::new(format!("{} requires {} {} arguments, got {}",
+                                   description(), s, len, actual_len)))
     } else {
         Ok(())
     }
