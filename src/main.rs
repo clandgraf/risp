@@ -2,6 +2,7 @@ use ansi_term::Colour::{Blue, Red};
 use rustyline::{error::ReadlineError, Editor};
 use rustyline;
 use std::fmt;
+use std::iter;
 
 use lisp::{
     lisp_object::{
@@ -91,6 +92,20 @@ fn handle_eval_error(sym: &Symbols, form: &LispObject, error: EvalError) {
     print_range_error(&string, &error, start, end);
 }
 
+fn in_scope<T, F>(
+    env: &mut Env,
+    binding: Option<Vec<(Symbol,LispObject)>>,
+    mut f: F
+) -> Result<T, EvalError>
+where F: FnMut(&mut Env) -> Result<T, EvalError> {
+    env.push_scope();
+    binding.map_or((),
+        |b| b.into_iter().for_each(|(sym, value)| env.set(sym, value)));
+    let res = f(env);
+    env.pop_scope();
+    res
+}
+
 fn apply_eval_args(sym: &Symbols, env: &mut Env, tail: &[LispObject])
                    -> Result<Vec<LispObject>, EvalError> {
     tail.iter().enumerate()
@@ -99,24 +114,37 @@ fn apply_eval_args(sym: &Symbols, env: &mut Env, tail: &[LispObject])
         .collect::<Result<Vec<LispObject>, EvalError>>()
 }
 
-fn in_scope<T, F>(
-    env: &mut Env,
-    binding: Option<(&ParamList, Vec<LispObject>)>,
-    mut f: F
-) -> Result<T, EvalError>
-where F: FnMut(&mut Env) -> Result<T, EvalError> {
-    env.push_scope();
-    if let Some((params, mut args)) = binding {
-        if let Some(rest_symbol) = params.1 {
-            let rest_args = args.split_off(params.0.len());
-            env.set(rest_symbol, LispObject::List(rest_args));
-        }
-        params.0.iter().zip(args.into_iter())
-            .for_each(|(sym, value)| env.set(*sym, value));
+fn bind_param_list<'a>(sym: &Symbols, env: &mut Env, params: &ParamList, tail: &[LispObject])
+                   -> Result<Vec<(Symbol, LispObject)>, EvalError> {
+    // Check Validity of Arguments
+    let m = match params.1 {
+        None    => Match::Exact,
+        Some(_) => Match::Min,
+    };
+    assert_args(m, tail, params.0.len(), || "param list".to_string())?;
+
+    // Evaluate Arguments
+    let mut args = tail.iter().enumerate()
+        .map(|(index, object)| eval(sym, env, object)
+             // TODO this assumes param list always at position 1
+             // Return index and error and process in caller
+             .map_err(|e| e.trace(index + 1)))
+        .collect::<Result<Vec<LispObject>, EvalError>>()?;
+
+    // Return Binding
+    let symbols = params.0.clone().into_iter();
+    if let Some(rest_sym) = params.1 {
+        let rest_args = args.split_off(params.0.len());
+        args.push(LispObject::List(rest_args));
+        Ok(symbols
+           .chain(iter::once(rest_sym))
+           .zip(args.into_iter())
+           .collect::<Vec<(Symbol, LispObject)>>())
+    } else {
+        Ok(symbols
+           .zip(args.into_iter())
+           .collect::<Vec<(Symbol, LispObject)>>())
     }
-    let res = f(env);
-    env.pop_scope();
-    res
 }
 
 fn split_param_list(lst: &mut Vec<Symbol>, rest_index: Option<usize>)
@@ -254,16 +282,11 @@ fn eval(sym: &Symbols, env: &mut Env, object: &LispObject) -> Result<LispObject,
             match head {
                 LispObject::SpecialForm(sf) => special_form(sym, env, sf, tail),
                 LispObject::Lambda(params, forms) => {
-                    let m = match params.1 {
-                        None    => Match::Exact,
-                        Some(_) => Match::Min,
-                    };
-                    assert_args(m, tail, params.0.len(), || "lambda".to_string())?;
-                    let args = apply_eval_args(sym, env, tail)?;
+                    let binding = bind_param_list(sym, env, &params, tail)?;
 
                     // TODO need a new entry for stack trace, as we're
                     //      descending into a new set of forms here
-                    let result = in_scope(env, Some((&params, args)), |mut env| {
+                    let result = in_scope(env, Some(binding), |mut env| {
                         forms.iter().enumerate()
                             .map(|(index, object)| eval(sym, &mut env, object)
                                  .map_err(|e| EvalError::new(e.message)))
@@ -273,6 +296,7 @@ fn eval(sym: &Symbols, env: &mut Env, object: &LispObject) -> Result<LispObject,
                     Ok(result[result.len() -1].clone())
                 },
                 LispObject::Native(f) => {
+                    // TODO natives should use ParamList, too...
                     let args = apply_eval_args(sym, env, tail)?;
                     f(&args[..])
                 }
