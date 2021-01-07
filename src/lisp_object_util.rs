@@ -9,8 +9,9 @@ pub enum Match {
     Min,
 }
 
-pub fn assert_args(m: Match, form: &[LispObject], len: usize, description: fn() -> String)
-                   -> Result<(), EvalError> {
+pub fn assert_args<T>(m: Match, form: &[LispObject], len: usize, description: T)
+                      -> Result<(), EvalError>
+where T: Fn() -> String {
     let actual_len = form.len();
     let pred = match m {
         Match::Exact => actual_len != len,

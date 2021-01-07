@@ -39,7 +39,7 @@ pub enum LispObject {
     String(String),
     Number(f64),
     List(Sexpr),
-    Native(Native),
+    Native(ParamList, Native),
     Lambda(ParamList, Sexpr),
 }
 
@@ -86,6 +86,13 @@ impl EvalError {
 }
 
 pub type Native = fn(&[LispObject]) -> Result<LispObject, EvalError>;
+
+pub struct NativeDef {
+    pub name: &'static str,
+    pub positional: &'static [&'static str],
+    pub rest: Option<&'static str>,
+    pub func: Native,
+}
 
 impl LispObject {
     pub fn as_bool(&self) -> Result<bool, EvalError> {

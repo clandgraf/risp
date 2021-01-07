@@ -106,14 +106,6 @@ where F: FnMut(&mut Env) -> Result<T, EvalError> {
     res
 }
 
-fn apply_eval_args(sym: &Symbols, env: &mut Env, tail: &[LispObject])
-                   -> Result<Vec<LispObject>, EvalError> {
-    tail.iter().enumerate()
-        .map(|(index, object)| eval(sym, env, object)
-             .map_err(|e| e.trace(index + 1)))
-        .collect::<Result<Vec<LispObject>, EvalError>>()
-}
-
 fn bind_param_list<'a>(sym: &Symbols, env: &mut Env, params: &ParamList, tail: &[LispObject])
                    -> Result<Vec<(Symbol, LispObject)>, EvalError> {
     // Check Validity of Arguments
@@ -122,7 +114,8 @@ fn bind_param_list<'a>(sym: &Symbols, env: &mut Env, params: &ParamList, tail: &
         Some(_) => Match::Min,
     };
     // TODO print out serialized param list.
-    assert_args(m, tail, params.0.len(), || "param list".to_string())?;
+    assert_args(m, tail, params.0.len(),
+                || format!("param list {}", sym.serialize_param_list(&params)))?;
 
     // Evaluate Arguments
     let mut args = tail.iter().enumerate()
@@ -297,10 +290,12 @@ fn eval(sym: &Symbols, env: &mut Env, object: &LispObject) -> Result<LispObject,
 
                     Ok(result[result.len() -1].clone())
                 },
-                LispObject::Native(f) => {
+                LispObject::Native(params, func) => {
                     // TODO natives should use ParamList, too...
-                    let args = apply_eval_args(sym, env, tail)?;
-                    f(&args[..])
+                    let args = bind_param_list(sym, env, &params, tail)?
+                        .into_iter().map(|(_, arg)| arg)
+                        .collect::<Vec<LispObject>>();
+                    func(&args[..])
                 }
                 _ => Err(EvalError::new("apply only implemented for LispObject::Native".to_string()).trace(0))
             }
@@ -313,7 +308,7 @@ fn eval(sym: &Symbols, env: &mut Env, object: &LispObject) -> Result<LispObject,
         LispObject::String(s) => Ok(LispObject::String(s.to_string())),
         LispObject::Number(n) => Ok(LispObject::Number(*n)),
         LispObject::Bool(b)   => Ok(LispObject::Bool(*b)),
-        LispObject::Native(f) => Ok(LispObject::Native(*f)),
+        LispObject::Native((p, r), f) => Ok(LispObject::Native((p.clone(), *r), *f)),
         LispObject::Lambda(_, _)
             => Err(EvalError::new(
                 format!("Unexpected lambda. This is probably an internal error."))),

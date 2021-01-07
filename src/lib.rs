@@ -8,8 +8,9 @@ mod native;
 pub mod reader;
 
 use crate::lisp_object::{
+    ParamList,
     LispObject,
-    Native,
+    NativeDef,
     SpecialForm,
     Symbol,
 };
@@ -90,37 +91,46 @@ impl Symbols {
             .join(" ")
     }
 
-    fn pos_params_to_string(&self, ps: &Vec<Symbol>) -> String {
-        ps.iter()
+    pub fn serialize_param_list(&self, lst: &ParamList) -> String {
+        let (pos, rest) = lst;
+        let pos_str = pos.iter()
             .map(|o| self.as_string(o).unwrap_or("~~uninterned~~"))
             .collect::<Vec<&str>>()
-            .join(" ")
-    }
+            .join(" ");
 
-    fn rest_param_to_string(&self, sym: Option<Symbol>) -> String {
-        match sym {
+        let rest_str = match rest {
             Some(s) => format!(" &rest {}", self.as_string(&s)
                                .unwrap_or("~~uninterned~~")),
             None => "".to_string(),
-        }
+        };
+
+        format!("({}{})", pos_str, rest_str)
     }
 
     pub fn serialize_object(&self, obj: &LispObject) -> String {
         match obj {
-            LispObject::Symbol(s) => format!("{}", self.as_string(s)
-                                             .unwrap_or("~~uninterned~~")),
-            LispObject::List(l) => format!("({})", self.form_to_string(l)),
+            LispObject::Symbol(s) =>
+                format!("{}", self.as_string(s)
+                        .unwrap_or("~~uninterned~~")),
+            LispObject::List(l) =>
+                format!("({})", self.form_to_string(l)),
             LispObject::Lambda(ps, fs) =>
-                format!("(fn ({}{}) {})",
-                        self.pos_params_to_string(&ps.0),
-                        self.rest_param_to_string(ps.1),
+                format!("(fn {} {})",
+                        self.serialize_param_list(&ps),
                         self.form_to_string(fs)),
-            LispObject::Bool(true) => "#t".to_string(),
-            LispObject::Bool(false) => "#f".to_string(),
-            LispObject::SpecialForm(sf) => format!("{}", sf),
-            LispObject::String(s) => format!("\"{}\"", s),
-            LispObject::Number(n) => format!("{}", n.to_string()),
-            LispObject::Native(_) => "~~native~~".to_string(),
+            LispObject::Bool(true) =>
+                "#t".to_string(),
+            LispObject::Bool(false) =>
+                "#f".to_string(),
+            LispObject::SpecialForm(sf) =>
+                format!("{}", sf),
+            LispObject::String(s) =>
+                format!("\"{}\"", s),
+            LispObject::Number(n) =>
+                format!("{}", n.to_string()),
+            LispObject::Native(ps, _) =>
+                format!("(~~ {} ~~)",
+                        self.serialize_param_list(&ps)),
         }
     }
 }
@@ -162,8 +172,14 @@ impl Env {
     }
 }
 
-fn set_native(env: &mut Env, key: Symbol, value: Native) {
-    env.global(key, LispObject::Native(value));
+fn set_native(sym: &mut Symbols, env: &mut Env, def: NativeDef) {
+    // Intern Arguments
+    let pos_args = def.positional.iter()
+        .map(|s| sym.intern(s))
+        .collect::<Vec<Symbol>>();
+    let rest_arg = def.rest.map(|s| sym.intern(s));
+    env.global(sym.intern(def.name),
+               LispObject::Native((pos_args, rest_arg), def.func));
 }
 
 fn set_special(sym: &mut Symbols, env: &mut Env, sf: SpecialForm) {
@@ -180,11 +196,11 @@ pub fn create_root(symbols: &mut Symbols) -> Env {
     set_special(symbols, &mut root, SpecialForm::Let);
     set_special(symbols, &mut root, SpecialForm::Begin);
     set_special(symbols, &mut root, SpecialForm::Quote);
-    set_native(&mut root, symbols.intern("+"), native::add);
-    set_native(&mut root, symbols.intern("*"), native::multiply);
-    set_native(&mut root, symbols.intern("-"), native::minus);
-    set_native(&mut root, symbols.intern("="), native::equal);
-    set_native(&mut root, symbols.intern("first"), native::first);
-    set_native(&mut root, symbols.intern("rest"), native::rest);
+    set_native (symbols, &mut root, native::ADD);
+    set_native (symbols, &mut root, native::MULTIPLY);
+    set_native (symbols, &mut root, native::SUBTRACT);
+    set_native (symbols, &mut root, native::EQUAL);
+    set_native (symbols, &mut root, native::FIRST);
+    set_native (symbols, &mut root, native::REST);
     root
 }
