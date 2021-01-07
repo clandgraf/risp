@@ -121,6 +121,7 @@ fn bind_param_list<'a>(sym: &Symbols, env: &mut Env, params: &ParamList, tail: &
         None    => Match::Exact,
         Some(_) => Match::Min,
     };
+    // TODO print out serialized param list.
     assert_args(m, tail, params.0.len(), || "param list".to_string())?;
 
     // Evaluate Arguments
@@ -171,7 +172,8 @@ fn parse_param_list(symbols: &Symbols, lst: Vec<LispObject>) -> Result<ParamList
     Ok((params, rest))
 }
 
-fn special_form(sym: &Symbols, env: &mut Env, sf: SpecialForm, tail: &[LispObject]) -> Result<LispObject, EvalError> {
+fn special_form(sym: &Symbols, env: &mut Env, sf: SpecialForm, tail: &[LispObject])
+                -> Result<LispObject, EvalError> {
     match sf {
         SpecialForm::Quote => {
             assert_args(Match::Exact, tail, 1, || "special form quote".to_string())?;
