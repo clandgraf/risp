@@ -266,7 +266,7 @@ fn eval_special_form(sym: &Symbols, env: &mut Env,
             let result = in_scope(env, Some(binding), |mut env| {
                 forms.iter().enumerate()
                     .map(|(index, object)| eval(sym, &mut env, object)
-                         .map_err(|e| e.trace(index).frame(LispObject::List(forms.to_vec()))))
+                         .map_err(|e| e.trace(index + 2)))
                     .collect::<Result<Vec<LispObject>, EvalError>>()
             })?;
 
@@ -285,9 +285,9 @@ fn eval_lambda(sym: &Symbols, env: &mut Env,
     let result = in_scope(env, Some(binding), |mut env| {
         forms.iter().enumerate()
             .map(|(index, object)| eval(sym, &mut env, object)
-                 .map_err(|e| e.trace(index).frame(LispObject::List(forms.clone()))))
+                 .map_err(|e| e.trace(index)))
             .collect::<Result<Vec<LispObject>, EvalError>>()
-    })?;
+    }).map_err(|e| e.frame(LispObject::List(forms)))?;
 
     Ok(result[result.len() -1].clone())
 }

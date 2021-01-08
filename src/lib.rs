@@ -167,7 +167,6 @@ impl Env {
             .find(|scope| scope.contains_key(key)) {
                 Some(scope) => scope.get(key),
                 None => None,
-
             }
     }
 }
