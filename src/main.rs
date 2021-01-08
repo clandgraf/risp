@@ -39,22 +39,20 @@ fn print_message(displayable: &dyn fmt::Display) {
     eprintln!("{}: {}", Red.paint("Error"), displayable);
 }
 
-fn handle_read_error(input: &String, result: Result<(), ReadError>) -> Result<(), ReadError> {
-    if let Err(e) = result {
-        match e {
-            ReadError::UnknownCharacter((start, end)) => {
-                print_message(&e);
-                print_range(input, start, end);
-            },
-            ReadError::UnexpectedRbrace((start, end)) => {
-                print_message(&e);
-                print_range(input, start, end);
-            },
-            ReadError::UnexpectedEndOfString =>
-                print_message(&e),
-            ReadError::InternalError =>
-                return Err(ReadError::InternalError),
-        }
+fn handle_read_error(input: &String, e: ReadError) -> Result<(), ReadError> {
+    match e {
+        ReadError::UnknownCharacter((start, end)) => {
+            print_message(&e);
+            print_range(input, start, end);
+        },
+        ReadError::UnexpectedRbrace((start, end)) => {
+            print_message(&e);
+            print_range(input, start, end);
+        },
+        ReadError::UnexpectedEndOfString =>
+            print_message(&e),
+        ReadError::InternalError =>
+            return Err(ReadError::InternalError),
     }
     Ok(())
 }
@@ -249,26 +247,30 @@ fn eval_special_form(sym: &Symbols, env: &mut Env,
         },
         SpecialForm::Let => {
             assert_args(Match::Min, tail, 2, || "special form let".to_string())?;
-            // let bindings = form[1].as_list()
-            //     .map_err(|e| e.trace(1))?;
-            // let evaled_bindings = bindings.iter().enumerate()
-            //     .map(|binding| {
-            //         let binding = binding.as_list()
-            //             .map_err(|e|.trace(index).trace(1))?;
-            //         let s = binding[0].as_symbol()
-            //             .map_err(|e| e.trace(0).trace(index).trace(1))?;
-            //         let v = eval(sym, env, binding[1])
-            //             .map_err(|e| e.trace(0).trace(index).trace(1))?;
-            //         (s, v)
-            //     })
-            //     .collect<Result<Vec<Symbol, LispObject>>>();
+            let binding_forms = tail[0].as_list()
+                .map_err(|e| e.trace(1))?;
 
-            // let result = in_scope(env, |mut env| {
-            //     evaled_bindings.for_each(|(sym, value)| env.set(*sym, value));
+            let binding = binding_forms.iter().enumerate()
+                .map(|(index, b)| {
+                    let b = b.as_list()
+                        .map_err(|e| e.trace(index).trace(1))?;
+                    let s = b[0].as_symbol()
+                        .map_err(|e| e.trace(0).trace(index).trace(1))?;
+                    let v = eval(sym, env, &b[1])
+                        .map_err(|e| e.trace(1).trace(index).trace(1))?;
+                    Ok((s, v))
+                })
+                .collect::<Result<Vec<(Symbol, LispObject)>, EvalError>>()?;
 
-            // })
+            let forms = &tail[1..];
+            let result = in_scope(env, Some(binding), |mut env| {
+                forms.iter().enumerate()
+                    .map(|(index, object)| eval(sym, &mut env, object)
+                         .map_err(|e| e.trace(index).frame(LispObject::List(forms.to_vec()))))
+                    .collect::<Result<Vec<LispObject>, EvalError>>()
+            })?;
 
-            Err(EvalError::new("TODO implement special form let".to_string()).trace(0))
+            Ok(result[result.len() -1].clone())
         },
     }
 }
@@ -278,6 +280,8 @@ fn eval_lambda(sym: &Symbols, env: &mut Env,
                -> Result<LispObject, EvalError> {
     let binding = bind_param_list(sym, env, &params, tail)?;
 
+    // TODO refactor into eval_body and remove in_scope
+    // .map_err/.frame can be after in_scope
     let result = in_scope(env, Some(binding), |mut env| {
         forms.iter().enumerate()
             .map(|(index, object)| eval(sym, &mut env, object)
@@ -332,8 +336,22 @@ fn eval(sym: &Symbols, env: &mut Env, object: &LispObject)
     }
 }
 
-fn eval_frame(sym: &Symbols, env: &mut Env, obj: LispObject) -> Result<LispObject, EvalError> {
-    eval(sym, env, &obj).map_err(|e| e.frame(obj))
+pub enum ExecError {
+    Read(ReadError),
+    Eval(EvalError),
+}
+
+fn handle_line(symbols: &mut Symbols, env: &mut Env, reader: &mut Reader, line: &String)
+               -> Result<(), ExecError> {
+    let mut prog: Vec<LispObject> = vec![];
+    reader.partial(symbols, &mut prog, line)
+        .map_err(ExecError::Read)?;
+    for obj in prog {
+        let result = eval(symbols, env, &obj)
+            .map_err(|e| ExecError::Eval(e.frame(obj)))?;
+        println!("{}", symbols.serialize_object(&result));
+    }
+    Ok(())
 }
 
 fn main() {
@@ -351,17 +369,14 @@ fn main() {
 
         match rl.readline(&prompt[..]) {
             Ok(line) => {
-                let mut prog: Vec<LispObject> = vec![];
-                match reader.partial(&mut symbols, &mut prog, &line) {
-                    Ok(()) => for obj in prog {
-                        match eval_frame(&symbols, &mut env, obj) {
-                            Ok(object) => println!("{}", symbols.serialize_object(&object)),
-                            Err(e) => handle_eval_error(&symbols, e),
+                match handle_line(&mut symbols, &mut env, &mut reader, &line) {
+                    Err(ExecError::Eval(e)) => handle_eval_error(&symbols, e),
+                    Err(ExecError::Read(e)) => {
+                        if let Err(e) = handle_read_error(&line, e) {
+                            break Err(e.to_string());
                         }
-                    }
-                    result @ _ => if let Err(e) = handle_read_error(&line, result) {
-                        break Err(e.to_string());
-                    }
+                    },
+                    _ => ()
                 }
 
                 if line.trim().len() > 0 {

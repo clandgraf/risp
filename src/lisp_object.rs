@@ -122,4 +122,11 @@ impl LispObject {
             _ => Err(EvalError::new("Expected a list".to_string())),
         }
     }
+
+    pub fn into_list(self) -> Result<Sexpr, EvalError> {
+        match self {
+            LispObject::List(l) => Ok(l),
+            _ => Err(EvalError::new("Expected a list".to_string())),
+        }
+    }
 }
