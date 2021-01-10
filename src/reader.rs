@@ -1,8 +1,10 @@
 use std::fmt;
 
-use crate::lexer::{Tokens, ObjectT, StringT, Lexer};
-use crate::lisp_object::LispObject;
-use crate::Symbols;
+use crate::{
+    lexer::{Tokens, ObjectT, StringT, Lexer},
+    lisp_object::LispObject,
+    env::Symbols,
+};
 
 const UNKNOWN_CHAR: &str = "Unexpected character.";
 const UNEXPECTED_RBRACE: &str = "Right brace without matching lbrace.";
