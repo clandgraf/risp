@@ -112,6 +112,10 @@ impl Symbols {
                         .unwrap_or("~~uninterned~~")),
             LispObject::List(l) =>
                 format!("({})", self.form_to_string(l)),
+            LispObject::Macro(ps, fs) =>
+                format!("macro {}{}",
+                        self.serialize_param_list(&ps),
+                        self.form_to_string(fs)),
             LispObject::Lambda(ps, fs) =>
                 format!("(fn {} {})",
                         self.serialize_param_list(&ps),

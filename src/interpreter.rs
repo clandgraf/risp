@@ -125,9 +125,36 @@ impl Interpreter {
         Ok(())
     }
 
+    fn expand_macros(&mut self, object: LispObject) -> Result<LispObject, EvalError> {
+        match object {
+            LispObject::List(l) => {
+                if let Some((params, forms)) = self.as_macro_call(&l) {
+                    Err(EvalError::new("unimplemented".to_string()))
+                } else {
+                    Err(EvalError::new("unimplemented".to_string()))
+                }
+            },
+            Else => Ok(Else),
+        }
+    }
+
+    fn as_macro_call(&self, lst: &Vec<LispObject>) -> Option<(&ParamList, &Vec<LispObject>)> {
+        if lst.len() == 0 {
+            return None
+        }
+
+        let resolved_head = lst[0].as_symbol().ok()
+            .and_then(|sym| self.env.resolve(&sym));
+
+        match resolved_head {
+            Some(LispObject::Macro(ps, fs)) => Some((ps, fs)),
+            _ => None,
+        }
+    }
+
     fn eval(&mut self, object: &LispObject) -> Result<LispObject, EvalError> {
         match object {
-            LispObject::List(l)   => {
+            LispObject::List(l) => {
                 if l.len() == 0 {
                     return Err(exc::apply_empty())
                 }
@@ -142,7 +169,7 @@ impl Interpreter {
                     LispObject::Lambda(params, forms)
                         => self.eval_lambda(params, forms, tail),
                     LispObject::Native(params, func) => {
-                        let args = self.bind_param_list(&params, tail)?
+                        let args = self.bind_param_list(&params, tail, true)?
                             .into_iter().map(|(_, arg)| arg)
                             .collect::<Vec<LispObject>>();
                         func(&args[..])
@@ -158,6 +185,8 @@ impl Interpreter {
             LispObject::Number(n) => Ok(LispObject::Number(*n)),
             LispObject::Bool(b)   => Ok(LispObject::Bool(*b)),
             LispObject::Native((p, r), f) => Ok(LispObject::Native((p.clone(), *r), *f)),
+            LispObject::Macro(_,_)
+                => Err(exc::unexpected_macro()),
             LispObject::Lambda(_, _)
                 => Err(exc::unexpected_lambda()),
             LispObject::SpecialForm(_)
@@ -167,7 +196,7 @@ impl Interpreter {
 
     fn eval_lambda(&mut self, params: ParamList, forms: Vec<LispObject>, tail: &[LispObject])
                    -> Result<LispObject, EvalError> {
-        let binding = self.bind_param_list(&params, tail)?;
+        let binding = self.bind_param_list(&params, tail, true)?;
         self.eval_body(Some(binding), &forms)
             .map_err(|(err, index)| err.trace(index).frame(LispObject::List(forms)))
     }
@@ -295,7 +324,7 @@ impl Interpreter {
         Ok((params, rest))
     }
 
-    fn bind_param_list<'a>(&mut self, params: &ParamList, tail: &[LispObject])
+    fn bind_param_list<'a>(&mut self, params: &ParamList, tail: &[LispObject], eval_args: bool)
                    -> Result<Vec<(Symbol, LispObject)>, EvalError> {
         // Check Validity of Arguments
         let m = match params.1 {
@@ -306,12 +335,16 @@ impl Interpreter {
                     || format!("param list {}", self.symbols.serialize_param_list(&params)))?;
 
         // Evaluate Arguments
-        let mut args = tail.iter().enumerate()
-            .map(|(index, object)| self.eval(object)
-                 // TODO this assumes param list always at position 1
-                 // Return index and error and process in caller
-                 .map_err(|e| e.trace(index + 1)))
-            .collect::<Result<Vec<LispObject>, EvalError>>()?;
+        let mut args = if eval_args {
+            tail.iter().enumerate()
+                .map(|(index, object)| self.eval(object)
+                     // TODO this assumes param list always at position 1
+                     // Return index and error and process in caller
+                     .map_err(|e| e.trace(index + 1)))
+                .collect::<Result<Vec<LispObject>, EvalError>>()?
+        } else {
+            tail.to_vec()
+        };
 
         // Return Binding
         let symbols = params.0.clone().into_iter();

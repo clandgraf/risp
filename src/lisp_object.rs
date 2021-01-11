@@ -40,6 +40,7 @@ pub enum LispObject {
     Number(f64),
     List(Sexpr),
     Native(ParamList, Native),
+    Macro(ParamList, Sexpr),
     Lambda(ParamList, Sexpr),
 }
 

@@ -23,3 +23,8 @@ pub fn unexpected_special_form() -> EvalError {
     EvalError::new(
         format!("Unexpected special form. This is probably an internal error."))
 }
+
+pub fn unexpected_macro() -> EvalError {
+    EvalError::new(
+        format!("Unexpected macro. This is probably an internal error."))
+}
