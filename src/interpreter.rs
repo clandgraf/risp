@@ -129,16 +129,22 @@ impl Interpreter {
         match object {
             LispObject::List(l) => {
                 if let Some((params, forms)) = self.as_macro_call(&l) {
+                    let binding = self.bind_param_list(&params, &l[1..], false)?;
+                    self.eval_body(Some(binding), &forms);
                     Err(EvalError::new("unimplemented".to_string()))
                 } else {
-                    Err(EvalError::new("unimplemented".to_string()))
+                    Ok(LispObject::List(
+                        l.into_iter()
+                            .map(|object| self.expand_macros(object))
+                            .collect::<Result<Vec<LispObject>, EvalError>>()?
+                    ))
                 }
             },
-            Else => Ok(Else),
+            obj => Ok(obj),
         }
     }
 
-    fn as_macro_call(&self, lst: &Vec<LispObject>) -> Option<(&ParamList, &Vec<LispObject>)> {
+    fn as_macro_call(&self, lst: &Vec<LispObject>) -> Option<(ParamList, Vec<LispObject>)> {
         if lst.len() == 0 {
             return None
         }
@@ -147,7 +153,7 @@ impl Interpreter {
             .and_then(|sym| self.env.resolve(&sym));
 
         match resolved_head {
-            Some(LispObject::Macro(ps, fs)) => Some((ps, fs)),
+            Some(LispObject::Macro(ps, fs)) => Some((ps.clone(), fs.clone())),
             _ => None,
         }
     }
