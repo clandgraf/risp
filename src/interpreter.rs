@@ -129,9 +129,7 @@ impl Interpreter {
         match object {
             LispObject::List(l) => {
                 if let Some((params, forms)) = self.as_macro_call(&l) {
-                    let binding = self.bind_param_list(&params, &l[1..], false)?;
-                    self.eval_body(Some(binding), &forms);
-                    Err(EvalError::new("unimplemented".to_string()))
+                    self.eval_lambda(params, forms, &l[1..], true)
                 } else {
                     Ok(LispObject::List(
                         l.into_iter()
@@ -173,7 +171,9 @@ impl Interpreter {
                     LispObject::SpecialForm(sf)
                         => self.eval_special_form(sf, tail),
                     LispObject::Lambda(params, forms)
-                        => self.eval_lambda(params, forms, tail),
+                        => self.eval_lambda(params, forms, tail, false),
+                    LispObject::Macro(params, forms)
+                        => self.eval_macro(params, forms, tail),
                     LispObject::Native(params, func) => {
                         let args = self.bind_param_list(&params, tail, true)?
                             .into_iter().map(|(_, arg)| arg)
@@ -200,11 +200,17 @@ impl Interpreter {
         }
     }
 
-    fn eval_lambda(&mut self, params: ParamList, forms: Vec<LispObject>, tail: &[LispObject])
+    fn eval_lambda(&mut self, params: ParamList, forms: Vec<LispObject>, tail: &[LispObject], as_macro: bool)
                    -> Result<LispObject, EvalError> {
-        let binding = self.bind_param_list(&params, tail, true)?;
+        let binding = self.bind_param_list(&params, tail, !as_macro)?;
         self.eval_body(Some(binding), &forms)
             .map_err(|(err, index)| err.trace(index).frame(LispObject::List(forms)))
+    }
+
+    fn eval_macro(&mut self, params: ParamList, forms: Vec<LispObject>, tail: &[LispObject])
+                  -> Result<LispObject, EvalError> {
+        let expansion = self.eval_lambda(params, forms, tail, true)?;
+        self.eval(&expansion)
     }
 
     fn eval_special_form(&mut self, sf: SpecialForm, tail: &[LispObject])
