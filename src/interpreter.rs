@@ -125,36 +125,36 @@ impl Interpreter {
         Ok(())
     }
 
-    fn expand_macros(&mut self, object: LispObject) -> Result<LispObject, EvalError> {
-        match object {
-            LispObject::List(l) => {
-                if let Some((params, forms)) = self.as_macro_call(&l) {
-                    self.eval_lambda(params, forms, &l[1..], true)
-                } else {
-                    Ok(LispObject::List(
-                        l.into_iter()
-                            .map(|object| self.expand_macros(object))
-                            .collect::<Result<Vec<LispObject>, EvalError>>()?
-                    ))
-                }
-            },
-            obj => Ok(obj),
-        }
-    }
+    // fn expand_macros(&mut self, object: LispObject) -> Result<LispObject, EvalError> {
+    //     match object {
+    //         LispObject::List(l) => {
+    //             if let Some((params, forms)) = self.as_macro_call(&l) {
+    //                 self.eval_lambda(params, &forms, &l[1..], true)
+    //             } else {
+    //                 Ok(LispObject::List(
+    //                     l.into_iter()
+    //                         .map(|object| self.expand_macros(object))
+    //                         .collect::<Result<Vec<LispObject>, EvalError>>()?
+    //                 ))
+    //             }
+    //         },
+    //         obj => Ok(obj),
+    //     }
+    // }
 
-    fn as_macro_call(&self, lst: &Vec<LispObject>) -> Option<(ParamList, Vec<LispObject>)> {
-        if lst.len() == 0 {
-            return None
-        }
+    // fn as_macro_call(&self, lst: &Vec<LispObject>) -> Option<(ParamList, Vec<LispObject>)> {
+    //     if lst.len() == 0 {
+    //         return None
+    //     }
 
-        let resolved_head = lst[0].as_symbol().ok()
-            .and_then(|sym| self.env.resolve(&sym));
+    //     let resolved_head = lst[0].as_symbol().ok()
+    //         .and_then(|sym| self.env.resolve(&sym));
 
-        match resolved_head {
-            Some(LispObject::Macro(ps, fs)) => Some((ps.clone(), fs.clone())),
-            _ => None,
-        }
-    }
+    //     match resolved_head {
+    //         Some(LispObject::Macro(ps, fs)) => Some((ps.clone(), fs.clone())),
+    //         _ => None,
+    //     }
+    // }
 
     fn eval(&mut self, object: &LispObject) -> Result<LispObject, EvalError> {
         match object {
@@ -170,15 +170,35 @@ impl Interpreter {
                 match head {
                     LispObject::SpecialForm(sf)
                         => self.eval_special_form(sf, tail),
-                    LispObject::Lambda(params, forms)
-                        => self.eval_lambda(params, forms, tail, false),
-                    LispObject::Macro(params, forms)
-                        => self.eval_macro(params, forms, tail),
                     LispObject::Native(params, func) => {
                         let args = self.bind_param_list(&params, tail, true)?
                             .into_iter().map(|(_, arg)| arg)
                             .collect::<Vec<LispObject>>();
                         func(&args[..])
+                    }
+                    LispObject::List(lst) => {
+                        match lst[0].as_symbol()? {
+                            x if x == self.symbols.sym_fn => {
+                                assert_args(Match::Min, &lst, 2, || "fn definition".to_string())?;
+                                let param_list = lst[1].as_list()
+                                    .map_err(|e| e.trace(1))?;
+                                let params = self.parse_param_list(param_list)?;
+                                let forms = &lst[2..];
+                                self.eval_lambda(params, forms, tail, false)
+                            },
+                            x if x == self.symbols.sym_macro => {
+                                assert_args(Match::Min, &lst, 2, || "macro definition".to_string())?;
+                                let param_list = lst[1].as_list()
+                                    .map_err(|e| e
+                                             .trace(1)
+                                             .frame(LispObject::List(lst.clone()))
+                                             .trace(0))?;
+                                let params = self.parse_param_list(param_list)?;
+                                let forms = &lst[2..];
+                                self.eval_macro(params, forms, tail)
+                            },
+                            _ => Err(EvalError::new("expected function or macro".to_string()))
+                        }
                     }
                     _ => Err(exc::apply_unimpl().trace(0))
                 }
@@ -191,26 +211,23 @@ impl Interpreter {
             LispObject::Number(n) => Ok(LispObject::Number(*n)),
             LispObject::Bool(b)   => Ok(LispObject::Bool(*b)),
             LispObject::Native((p, r), f) => Ok(LispObject::Native((p.clone(), *r), *f)),
-            LispObject::Macro(_,_)
-                => Err(exc::unexpected_macro()),
-            LispObject::Lambda(_, _)
-                => Err(exc::unexpected_lambda()),
             LispObject::SpecialForm(_)
                 => Err(exc::unexpected_special_form())
         }
     }
 
-    fn eval_lambda(&mut self, params: ParamList, forms: Vec<LispObject>, tail: &[LispObject], as_macro: bool)
+    fn eval_lambda(&mut self, params: ParamList, forms: &[LispObject], tail: &[LispObject], as_macro: bool)
                    -> Result<LispObject, EvalError> {
         let binding = self.bind_param_list(&params, tail, !as_macro)?;
-        self.eval_body(Some(binding), &forms)
-            .map_err(|(err, index)| err.trace(index).frame(LispObject::List(forms)))
+        self.eval_body(Some(binding), forms)
+            .map_err(|(err, index)| err.trace(index).frame(LispObject::List(forms.to_vec())))
     }
 
-    fn eval_macro(&mut self, params: ParamList, forms: Vec<LispObject>, tail: &[LispObject])
+    fn eval_macro(&mut self, params: ParamList, forms: &[LispObject], tail: &[LispObject])
                   -> Result<LispObject, EvalError> {
         let expansion = self.eval_lambda(params, forms, tail, true)?;
         self.eval(&expansion)
+            .map_err(|e| e.frame(expansion).trace(0))
     }
 
     fn eval_special_form(&mut self, sf: SpecialForm, tail: &[LispObject])
@@ -255,16 +272,6 @@ impl Interpreter {
                                             .to_string())
                              .trace(1))
                 }
-            },
-            SpecialForm::Fn => {
-                // TODO allow only lispobject instead of vec<lispobject> as second param
-                assert_args(Match::Min, tail, 2, || "special form fn".to_string())?;
-                let param_list = tail[0].as_list()
-                    .map_err(|e| e.trace(1))?;
-                let params = self.parse_param_list(param_list)
-                    .map_err(|e| e.trace(1))?;
-                let body = tail[1..].iter().cloned().collect();
-                Ok(LispObject::Lambda(params, body))
             },
             SpecialForm::If => {
                 // TODO allow only lispobject instead of vec<lispobject> as second param

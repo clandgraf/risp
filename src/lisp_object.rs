@@ -4,7 +4,7 @@ use std::fmt;
 pub enum SpecialForm {
     Def,
     Set,
-    Fn,
+    // Fn,
     If,
     Let,
     Begin,
@@ -16,7 +16,7 @@ impl fmt::Display for SpecialForm {
         write!(f, "{}", match self {
             SpecialForm::Def => "def",
             SpecialForm::Set => "set",
-            SpecialForm::Fn => "fn",
+            // SpecialForm::Fn => "fn",
             SpecialForm::If => "if",
             SpecialForm::Let => "let",
             SpecialForm::Begin => "begin",
@@ -40,8 +40,8 @@ pub enum LispObject {
     Number(f64),
     List(Sexpr),
     Native(ParamList, Native),
-    Macro(ParamList, Sexpr),
-    Lambda(ParamList, Sexpr),
+    // Macro(ParamList, Sexpr),
+    // Lambda(ParamList, Sexpr),
 }
 
 // When an error occurs during evaluation an Err(EvalError) is returned.

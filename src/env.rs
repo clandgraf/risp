@@ -18,6 +18,8 @@ pub struct Symbols {
     reverse: HashMap<Symbol, String>,
     next_id: Symbol,
 
+    pub sym_fn: Symbol,
+    pub sym_macro: Symbol,
     pub sym_quote: Symbol,
     pub sym_quasiquote: Symbol,
     pub sym_unquote: Symbol,
@@ -32,12 +34,16 @@ impl Symbols {
             reverse: HashMap::new(),
             next_id: 0,
 
+            sym_fn: 0,
+            sym_macro: 0,
             sym_quote: 0,
             sym_quasiquote: 0,
             sym_unquote: 0,
             sym_unquote_splice: 0,
             sym_rest: 0,
         };
+        symbols.sym_fn = symbols.intern("fn");
+        symbols.sym_macro = symbols.intern("macro");
         symbols.sym_quote = symbols.intern("quote");
         symbols.sym_quasiquote = symbols.intern("quasiquote");
         symbols.sym_unquote = symbols.intern("unquote");
@@ -112,26 +118,18 @@ impl Symbols {
                         .unwrap_or("~~uninterned~~")),
             LispObject::List(l) =>
                 format!("({})", self.form_to_string(l)),
-            LispObject::Macro(ps, fs) =>
-                format!("macro {}{}",
-                        self.serialize_param_list(&ps),
-                        self.form_to_string(fs)),
-            LispObject::Lambda(ps, fs) =>
-                format!("(fn {} {})",
-                        self.serialize_param_list(&ps),
-                        self.form_to_string(fs)),
             LispObject::Bool(true) =>
                 "#t".to_string(),
             LispObject::Bool(false) =>
                 "#f".to_string(),
             LispObject::SpecialForm(sf) =>
-                format!("{}", sf),
+                format!("~special:{}~", sf),
             LispObject::String(s) =>
                 format!("\"{}\"", s),
             LispObject::Number(n) =>
                 format!("{}", n.to_string()),
             LispObject::Native(ps, _) =>
-                format!("(~~ {} ~~)",
+                format!("(~native~{}~)",
                         self.serialize_param_list(&ps)),
         }
     }
@@ -192,7 +190,6 @@ pub fn create_root(symbols: &mut Symbols) -> Env {
     let mut root = Env::new();
     set_special(symbols, &mut root, SpecialForm::Def);
     set_special(symbols, &mut root, SpecialForm::Set);
-    set_special(symbols, &mut root, SpecialForm::Fn);
     set_special(symbols, &mut root, SpecialForm::If);
     set_special(symbols, &mut root, SpecialForm::Let);
     set_special(symbols, &mut root, SpecialForm::Begin);
@@ -203,5 +200,9 @@ pub fn create_root(symbols: &mut Symbols) -> Env {
     set_native (symbols, &mut root, native::EQUAL);
     set_native (symbols, &mut root, native::FIRST);
     set_native (symbols, &mut root, native::REST);
+    set_native (symbols, &mut root, native::LIST);
+    set_native (symbols, &mut root, native::CONCAT);
+    set_native (symbols, &mut root, native::IS_LIST);
+    set_native (symbols, &mut root, native::LENGTH);
     root
 }

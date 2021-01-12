@@ -14,17 +14,7 @@ pub fn unbound_symbol(sym: Option<&str>) -> EvalError {
                            sym.unwrap_or("~~uninterned~~")))
 }
 
-pub fn unexpected_lambda() -> EvalError {
-    EvalError::new(
-        format!("Unexpected lambda. This is probably an internal error."))
-}
-
 pub fn unexpected_special_form() -> EvalError {
     EvalError::new(
-        format!("Unexpected special form. This is probably an internal error."))
-}
-
-pub fn unexpected_macro() -> EvalError {
-    EvalError::new(
-        format!("Unexpected macro. This is probably an internal error."))
+        format!("Unexpected special form. You are maybe missing a quote."))
 }

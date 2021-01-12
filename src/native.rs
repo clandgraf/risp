@@ -61,6 +61,11 @@ fn equal(args: &[LispObject]) -> Result<LispObject, EvalError> {
                 .map_err(|e| e.trace(2))?;
             Ok(LispObject::Bool(op0 == op1))
         }
+        LispObject::Symbol(op0) => {
+            let op1 = args[1].as_symbol()
+                .map_err(|e| e.trace(2))?;
+            Ok(LispObject::Bool(op0 == op1))
+        }
         _ => Err(EvalError::new("equal not implemented for type".to_string()).trace(1)),
     }
 }
@@ -99,4 +104,54 @@ pub const REST: NativeDef = NativeDef {
     positional: &["lst"],
     rest: None,
     func: rest,
+};
+
+fn list(args: &[LispObject]) -> Result<LispObject, EvalError> {
+    Ok(LispObject::List(args[0].as_list()?))
+}
+
+pub const LIST: NativeDef = NativeDef {
+    name: "list",
+    positional: &[],
+    rest: Some("elems"),
+    func: list,
+};
+
+fn concat(args: &[LispObject]) -> Result<LispObject, EvalError> {
+    Ok(LispObject::List(
+        args[0].as_list()?.into_iter().enumerate()
+            .map(|(index, elem)| elem.into_list()
+                 .map_err(|e| e.trace(index + 1)))
+            .collect::<Result<Vec<Vec<LispObject>>, EvalError>>()?
+            .concat()
+    ))
+}
+
+pub const CONCAT: NativeDef = NativeDef {
+    name: "concat",
+    positional: &[],
+    rest: Some("lsts"),
+    func: concat,
+};
+
+fn is_list(args: &[LispObject]) -> Result<LispObject, EvalError> {
+    Ok(LispObject::Bool(matches!(args[0], LispObject::List(_))))
+}
+
+pub const IS_LIST: NativeDef = NativeDef {
+    name: "is-list",
+    positional: &["lst"],
+    rest: None,
+    func: is_list,
+};
+
+fn length(args: &[LispObject]) -> Result<LispObject, EvalError> {
+    Ok(LispObject::Number(args[0].as_list()?.len() as f64))
+}
+
+pub const LENGTH: NativeDef = NativeDef {
+    name: "length",
+    positional: &["lst"],
+    rest: None,
+    func: length,
 };
