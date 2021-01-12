@@ -59,7 +59,8 @@ impl Interpreter {
 
         for line in fin.lines() {
             let line = line.map_err(|e| e.to_string())?;
-            reader.partial(&mut self.symbols, &mut prog, &line)
+            let input = line.splitn(2, ';').next().unwrap();
+            reader.partial(&mut self.symbols, &mut prog, &input)
                 .or_else(|e| handle_read_error(&line, e))
                 .map_err(|e| e.to_string())?;
         }
@@ -111,7 +112,7 @@ impl Interpreter {
             .map_err(ExecError::Read)?;
         for obj in prog {
             let result = self.eval(&obj)
-                .map_err(|e| ExecError::Eval(e.frame(obj)))?;
+                .map_err(|e| ExecError::Eval(e.frame(obj, Some(":in:".to_string()))))?;
             println!("{}", self.symbols.serialize_object(&result));
         }
         Ok(())
@@ -183,13 +184,15 @@ impl Interpreter {
                         func(&args[..])
                     }
                     LispObject::List(lst) => {
-                        let fn_def = self.parse_function_def(&lst)
-                            .map_err(|e| e.frame(LispObject::List(lst.clone())).trace(0))?;
-                        if fn_def.is_macro {
-                            self.eval_macro(fn_def.params, &fn_def.forms, tail)
-                        } else {
-                            self.eval_lambda(fn_def.params, &fn_def.forms, tail, false)
-                        }
+                        // TODO Bug: This breaks for argument list evaluation
+                        // Argument list evaluation should not reference the expanded
+                        // function but the calling form. This map_err overrides this.
+                        self.eval_form(&lst, tail).map_err(
+                            |e| e.frame(
+                                LispObject::List(lst.clone()),
+                                l[0].as_symbol().ok().map(
+                                    |_| self.symbols.serialize_object(&l[0])))
+                                  .trace(0))
                     }
                     _ => Err(exc::apply_unimpl().trace(0))
                 }
@@ -207,18 +210,28 @@ impl Interpreter {
         }
     }
 
+    fn eval_form(&mut self, lst: &[LispObject], tail: &[LispObject])
+                 -> Result<LispObject, EvalError> {
+        let fn_def = self.parse_function_def(lst)?;
+        if fn_def.is_macro {
+            self.eval_macro(fn_def.params, &fn_def.forms, tail)
+        } else {
+            self.eval_lambda(fn_def.params, &fn_def.forms, tail, false)
+        }
+    }
+
     fn eval_lambda(&mut self, params: ParamList, forms: &[LispObject], tail: &[LispObject], as_macro: bool)
                    -> Result<LispObject, EvalError> {
         let binding = self.bind_param_list(&params, tail, !as_macro)?;
         self.eval_body(Some(binding), forms)
-            .map_err(|(err, index)| err.trace(index).frame(LispObject::List(forms.to_vec())))
+            .map_err(|(err, index)| err.trace(index).frame(LispObject::List(forms.to_vec()), None))
     }
 
     fn eval_macro(&mut self, params: ParamList, forms: &[LispObject], tail: &[LispObject])
                   -> Result<LispObject, EvalError> {
         let expansion = self.eval_lambda(params, forms, tail, true)?;
         self.eval(&expansion)
-            .map_err(|e| e.frame(expansion).trace(0))
+            .map_err(|e| e.frame(expansion, None).trace(0))
     }
 
     fn eval_special_form(&mut self, sf: SpecialForm, tail: &[LispObject])
@@ -324,7 +337,7 @@ impl Interpreter {
         result
     }
 
-    fn parse_function_def<'a>(&mut self, lst: &'a Vec<LispObject>)
+    fn parse_function_def<'a>(&mut self, lst: &'a [LispObject])
                               -> Result<FunctionDef<'a>, EvalError> {
         assert_args(Match::Min, &lst, 2, || "fn definition".to_string())?;
 

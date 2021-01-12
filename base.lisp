@@ -14,9 +14,6 @@
 (defun is-empty (lst)
   (= (length lst) 0))
 
-(defun test (fun lst)
-  (fun lst))
-
 ;; (defun map (fun lst)
 ;;   (if (is-empty lst) lst
 ;;       (cons (fun (first lst))

@@ -4,7 +4,6 @@ use std::fmt;
 pub enum SpecialForm {
     Def,
     Set,
-    // Fn,
     If,
     Let,
     Begin,
@@ -16,7 +15,6 @@ impl fmt::Display for SpecialForm {
         write!(f, "{}", match self {
             SpecialForm::Def => "def",
             SpecialForm::Set => "set",
-            // SpecialForm::Fn => "fn",
             SpecialForm::If => "if",
             SpecialForm::Let => "let",
             SpecialForm::Begin => "begin",
@@ -49,7 +47,7 @@ pub enum LispObject {
 //   occurred.
 
 pub type Trace = Vec<usize>;
-pub type Frame = (LispObject, Trace);
+pub type Frame = (LispObject, Trace, Option<String>);
 
 pub struct EvalError {
     pub message: String,      // Message describing the error
@@ -77,8 +75,8 @@ impl EvalError {
         self
     }
 
-    pub fn frame(mut self, expr: LispObject) -> EvalError {
-        self.frames.push((expr, self.trace));
+    pub fn frame(mut self, expr: LispObject, place: Option<String>) -> EvalError {
+        self.frames.push((expr, self.trace, place));
         self.trace = vec![];
         self
     }

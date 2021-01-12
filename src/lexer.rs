@@ -76,9 +76,9 @@ impl<'a> Iterator for Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(input: &String) -> Lexer {
+    pub fn new(input: &str) -> Lexer {
         Lexer {
-            mode: Modes::Object(ObjectT::lexer(&input[..]))
+            mode: Modes::Object(ObjectT::lexer(input))
         }
     }
 

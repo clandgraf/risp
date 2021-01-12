@@ -48,7 +48,7 @@ impl Reader {
         }
     }
 
-    pub fn partial(&mut self, symbols: &mut Symbols, prog: &mut Vec<LispObject>, input: &String)
+    pub fn partial(&mut self, symbols: &mut Symbols, prog: &mut Vec<LispObject>, input: &str)
                    -> Result<(), ReadError> {
         let mut lexer = Lexer::new(input);
         loop {

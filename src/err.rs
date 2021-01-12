@@ -6,30 +6,34 @@ use crate::{
     lisp_object::{LispObject, EvalError},
 };
 
-fn print_underline(start: usize, end: usize) {
-    eprintln!(" {} {}{}",
+fn print_underline(start: usize, end: usize, max_len: Option<usize>) {
+    eprintln!(" {:indent$} {} {}{}",
+              "",
               Blue.paint("|"), " ".repeat(start),
-              Red.paint("^".repeat(end - start)));
+              Red.paint("^".repeat(end - start)),
+              indent=max_len.unwrap_or(0));
 }
 
-fn print_range(input: &String, start: usize, end: usize) {
-    eprintln!(" {} {}", Blue.paint("|"), input);
-    print_underline(start, end);
+fn print_range(input: &str, start: usize, end: usize, place: Option<String>, max_len: Option<usize>) {
+    eprintln!(" {:indent$} {} {}",
+              place.unwrap_or("".to_string()), Blue.paint("|"), input,
+              indent=max_len.unwrap_or(0));
+    print_underline(start, end, max_len);
 }
 
 pub fn print_message(displayable: &dyn fmt::Display) {
     eprintln!("{}: {}", Red.paint("Error"), displayable);
 }
 
-pub fn handle_read_error(input: &String, e: ReadError) -> Result<(), ReadError> {
+pub fn handle_read_error(input: &str, e: ReadError) -> Result<(), ReadError> {
     match e {
         ReadError::UnknownCharacter((start, end)) => {
             print_message(&e);
-            print_range(input, start, end);
+            print_range(input, start, end, None, None);
         },
         ReadError::UnexpectedRbrace((start, end)) => {
             print_message(&e);
-            print_range(input, start, end);
+            print_range(input, start, end, None, None);
         },
         ReadError::UnexpectedEndOfString =>
             print_message(&e),
@@ -77,8 +81,11 @@ fn handle_failed_form(sym: &Symbols, form: &LispObject, stack: &[usize])
 
 pub fn handle_eval_error(sym: &Symbols, error: EvalError) {
     print_message(&error);
-    for (form, trace) in error.frames {
+    let place_len = error.frames.iter()
+        .map(|(_, _, place)| place.as_ref().map(|p| p.len()).unwrap_or(0))
+        .max();
+    for (form, trace, place) in error.frames {
         let (string, start, end) = handle_failed_form(sym, &form, &trace);
-        print_range(&string, start, end);
+        print_range(&string, start, end, place, place_len);
     }
 }
