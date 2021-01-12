@@ -40,8 +40,6 @@ pub enum LispObject {
     Number(f64),
     List(Sexpr),
     Native(ParamList, Native),
-    // Macro(ParamList, Sexpr),
-    // Lambda(ParamList, Sexpr),
 }
 
 // When an error occurs during evaluation an Err(EvalError) is returned.

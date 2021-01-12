@@ -28,6 +28,12 @@ pub enum ExecError {
     Eval(EvalError),
 }
 
+pub struct FunctionDef<'a> {
+    params: ParamList,
+    forms: &'a [LispObject],
+    is_macro: bool,
+}
+
 pub struct Interpreter {
     symbols: Symbols,
     env: Env,
@@ -177,27 +183,12 @@ impl Interpreter {
                         func(&args[..])
                     }
                     LispObject::List(lst) => {
-                        match lst[0].as_symbol()? {
-                            x if x == self.symbols.sym_fn => {
-                                assert_args(Match::Min, &lst, 2, || "fn definition".to_string())?;
-                                let param_list = lst[1].as_list()
-                                    .map_err(|e| e.trace(1))?;
-                                let params = self.parse_param_list(param_list)?;
-                                let forms = &lst[2..];
-                                self.eval_lambda(params, forms, tail, false)
-                            },
-                            x if x == self.symbols.sym_macro => {
-                                assert_args(Match::Min, &lst, 2, || "macro definition".to_string())?;
-                                let param_list = lst[1].as_list()
-                                    .map_err(|e| e
-                                             .trace(1)
-                                             .frame(LispObject::List(lst.clone()))
-                                             .trace(0))?;
-                                let params = self.parse_param_list(param_list)?;
-                                let forms = &lst[2..];
-                                self.eval_macro(params, forms, tail)
-                            },
-                            _ => Err(EvalError::new("expected function or macro".to_string()))
+                        let fn_def = self.parse_function_def(&lst)
+                            .map_err(|e| e.frame(LispObject::List(lst.clone())).trace(0))?;
+                        if fn_def.is_macro {
+                            self.eval_macro(fn_def.params, &fn_def.forms, tail)
+                        } else {
+                            self.eval_lambda(fn_def.params, &fn_def.forms, tail, false)
                         }
                     }
                     _ => Err(exc::apply_unimpl().trace(0))
@@ -331,6 +322,32 @@ impl Interpreter {
 
         self.env.pop_scope();
         result
+    }
+
+    fn parse_function_def<'a>(&mut self, lst: &'a Vec<LispObject>)
+                              -> Result<FunctionDef<'a>, EvalError> {
+        assert_args(Match::Min, &lst, 2, || "fn definition".to_string())?;
+
+        let is_macro = match lst[0] {
+            LispObject::Symbol(x) if x == self.symbols.sym_fn =>
+                Ok(false),
+            LispObject::Symbol(x) if x == self.symbols.sym_macro =>
+                Ok(true),
+            _ => Err(EvalError::new("expected function or macro symbol".to_string())
+                     .trace(0))
+        }?;
+
+        let param_list = lst[1].as_list()
+            .map_err(|e| e.trace(1))?;
+        let params = self.parse_param_list(param_list)
+            .map_err(|e| e.trace(1))?;
+        let forms = &lst[2..];
+
+        Ok(FunctionDef {
+            params: params,
+            forms: forms,
+            is_macro: is_macro,
+        })
     }
 
     fn parse_param_list(&mut self, lst: Vec<LispObject>) -> Result<ParamList, EvalError> {
