@@ -55,6 +55,10 @@ pub struct EvalError {
     pub trace: Trace,         // Current trace
 }
 
+pub trait SerializeSymbol {
+    fn as_string(&self, sym: &Symbol) -> Option<&str>;
+}
+
 impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
@@ -79,6 +83,15 @@ impl EvalError {
         self.frames.push((expr, self.trace, place));
         self.trace = vec![];
         self
+    }
+
+    pub fn def_frame<S>(self, serializer: &S, expr: LispObject, place: Option<Symbol>)
+                        -> EvalError
+    where S: SerializeSymbol {
+        self.frame(expr, place.map_or_else(
+            || None,
+            |sym| Some(serializer.as_string(&sym).unwrap().to_string())))
+
     }
 }
 

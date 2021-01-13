@@ -8,6 +8,7 @@ use crate::{
         NativeDef,
         SpecialForm,
         Symbol,
+        SerializeSymbol,
     },
     native
 };
@@ -84,10 +85,6 @@ impl Symbols {
         LispObject::List(vec![LispObject::Symbol(self.sym_unquote_splice), obj])
     }
 
-    pub fn as_string(&self, sym: &Symbol) -> Option<&str> {
-        self.reverse.get(sym).map(|s| &s[..])
-    }
-
     fn form_to_string(&self, l: &Vec<LispObject>) -> String {
         l.iter()
             .map(|o| self.serialize_object(o))
@@ -132,6 +129,12 @@ impl Symbols {
                 format!("(~native~{}~)",
                         self.serialize_param_list(&ps)),
         }
+    }
+}
+
+impl SerializeSymbol for Symbols {
+    fn as_string(&self, sym: &Symbol) -> Option<&str> {
+        self.reverse.get(sym).map(|s| &s[..])
     }
 }
 

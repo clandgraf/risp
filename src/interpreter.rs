@@ -11,6 +11,7 @@ use crate::{
         EvalError,
         LispObject,
         SpecialForm,
+        SerializeSymbol,
     },
     lisp_object_util::{
         Match,
@@ -184,17 +185,12 @@ impl Interpreter {
                         func(&args[..])
                     }
                     LispObject::List(lst) => {
-                        // TODO Bug: This breaks for argument list evaluation
-                        // Argument list evaluation should not reference the expanded
-                        // function but the calling form. This map_err overrides this.
-                        self.eval_form(&lst, tail).map_err(
-                            |e| e.frame(
-                                LispObject::List(lst.clone()),
-                                l[0].as_symbol().ok().map(
-                                    |_| self.symbols.serialize_object(&l[0])))
-                                  .trace(0))
+                        self.eval_form(&lst, tail,
+                                       l[0].as_symbol().ok())
                     }
-                    _ => Err(exc::apply_unimpl().trace(0))
+                    _ => Err(exc::apply_unimpl()
+                             .def_frame(&self.symbols, head, l[0].as_symbol().ok())
+                             .trace(0))
                 }
             },
             LispObject::Symbol(s) => match self.env.resolve(s) {
@@ -210,9 +206,11 @@ impl Interpreter {
         }
     }
 
-    fn eval_form(&mut self, lst: &[LispObject], tail: &[LispObject])
+    fn eval_form(&mut self, lst: &[LispObject], tail: &[LispObject], sym: Option<Symbol>)
                  -> Result<LispObject, EvalError> {
-        let fn_def = self.parse_function_def(lst)?;
+        let fn_def = self.parse_function_def(lst)
+            .map_err(|e| e.def_frame(&self.symbols, LispObject::List(lst.to_vec()), sym)
+                          .trace(0))?;
         if fn_def.is_macro {
             self.eval_macro(fn_def.params, &fn_def.forms, tail)
         } else {
@@ -346,10 +344,12 @@ impl Interpreter {
                 Ok(false),
             LispObject::Symbol(x) if x == self.symbols.sym_macro =>
                 Ok(true),
-            _ => Err(EvalError::new("expected function or macro symbol".to_string())
+            _ => Err(EvalError::new(format!("Expected `fn` or `macro` symbol, got `{}`",
+                                            self.symbols.serialize_object(&lst[0])))
                      .trace(0))
         }?;
 
+        // TODO mention param-list in err message
         let param_list = lst[1].as_list()
             .map_err(|e| e.trace(1))?;
         let params = self.parse_param_list(param_list)
