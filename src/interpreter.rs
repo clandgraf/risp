@@ -179,14 +179,25 @@ impl Interpreter {
                     LispObject::SpecialForm(sf)
                         => self.eval_special_form(sf, tail),
                     LispObject::Native(params, func) => {
-                        let args = self.bind_param_list(&params, tail, true)?
+                        // TODO handle err_in_expansion
+                        let args = self.bind_param_list(&params, tail, true)
+                            .map_err(|(e, _)| e)?
                             .into_iter().map(|(_, arg)| arg)
                             .collect::<Vec<LispObject>>();
                         func(&args[..])
                     }
                     LispObject::List(lst) => {
-                        self.eval_form(&lst, tail,
-                                       l[0].as_symbol().ok())
+                        self.eval_form(&lst, tail)
+                            .map_err(|(e, err_in_expansion)|
+                                 if err_in_expansion {
+                                     e.def_frame(&self.symbols,
+                                                 LispObject::List(lst),
+                                                 l[0].as_symbol().ok())
+                                      .trace(0)
+                                 } else {
+                                     e
+                                 }
+                            )
                     }
                     _ => Err(exc::apply_unimpl()
                              .def_frame(&self.symbols, head, l[0].as_symbol().ok())
@@ -206,30 +217,21 @@ impl Interpreter {
         }
     }
 
-    fn eval_form(&mut self, lst: &[LispObject], tail: &[LispObject], sym: Option<Symbol>)
-                 -> Result<LispObject, EvalError> {
+    fn eval_form(&mut self, lst: &[LispObject], tail: &[LispObject])
+                 -> Result<LispObject, (EvalError, bool)> {
         let fn_def = self.parse_function_def(lst)
-            .map_err(|e| e.def_frame(&self.symbols, LispObject::List(lst.to_vec()), sym)
-                          .trace(0))?;
+            .map_err(|e| (e, true))?;
+
+        let binding = self.bind_param_list(&fn_def.params, tail, !fn_def.is_macro)?;
+        let result = self.eval_body(Some(binding), fn_def.forms)
+            .map_err(|(e, index)| (e.trace(index + 2), true))?;
+
         if fn_def.is_macro {
-            self.eval_macro(fn_def.params, &fn_def.forms, tail)
+            self.eval(&result)
+                .map_err(|e| (e.frame(result, Some("~>".to_string())).trace(0), true))
         } else {
-            self.eval_lambda(fn_def.params, &fn_def.forms, tail, false)
+            Ok(result)
         }
-    }
-
-    fn eval_lambda(&mut self, params: ParamList, forms: &[LispObject], tail: &[LispObject], as_macro: bool)
-                   -> Result<LispObject, EvalError> {
-        let binding = self.bind_param_list(&params, tail, !as_macro)?;
-        self.eval_body(Some(binding), forms)
-            .map_err(|(err, index)| err.trace(index).frame(LispObject::List(forms.to_vec()), None))
-    }
-
-    fn eval_macro(&mut self, params: ParamList, forms: &[LispObject], tail: &[LispObject])
-                  -> Result<LispObject, EvalError> {
-        let expansion = self.eval_lambda(params, forms, tail, true)?;
-        self.eval(&expansion)
-            .map_err(|e| e.frame(expansion, None).trace(0))
     }
 
     fn eval_special_form(&mut self, sf: SpecialForm, tail: &[LispObject])
@@ -374,14 +376,15 @@ impl Interpreter {
     }
 
     fn bind_param_list<'a>(&mut self, params: &ParamList, tail: &[LispObject], eval_args: bool)
-                   -> Result<Vec<(Symbol, LispObject)>, EvalError> {
+                   -> Result<Vec<(Symbol, LispObject)>, (EvalError, bool)> {
         // Check Validity of Arguments
         let m = match params.1 {
             None    => Match::Exact,
             Some(_) => Match::Min,
         };
         assert_args(m, tail, params.0.len(),
-                    || format!("param list {}", self.symbols.serialize_param_list(&params)))?;
+                    || format!("param list {}", self.symbols.serialize_param_list(&params)))
+            .map_err(|e| (e.trace(1), true))?;
 
         // Evaluate Arguments
         let mut args = if eval_args {
@@ -390,7 +393,8 @@ impl Interpreter {
                      // TODO this assumes param list always at position 1
                      // Return index and error and process in caller
                      .map_err(|e| e.trace(index + 1)))
-                .collect::<Result<Vec<LispObject>, EvalError>>()?
+                .collect::<Result<Vec<LispObject>, EvalError>>()
+                .map_err(|e| (e, false))?
         } else {
             tail.to_vec()
         };
