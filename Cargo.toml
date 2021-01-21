@@ -9,5 +9,6 @@ edition = "2018"
 [dependencies]
 ansi_term = "0.12.1"
 clap = "2.33.3"
+dirs = "3.0.1"
 logos = "0.11.4"
-rustyline = "7.0.0"
+rustyline = "7.1.0"

@@ -1,8 +1,10 @@
+use dirs;
 use rustyline::{error::ReadlineError, Editor};
 use rustyline;
 use std::iter;
 use std::fs::File;
-use std::io::{prelude::*, BufReader};
+use std::io::{prelude::*, BufReader, ErrorKind};
+use std::path::{PathBuf};
 
 use crate::{
     lisp_object::{
@@ -38,6 +40,10 @@ pub struct FunctionDef<'a> {
 pub struct Interpreter {
     symbols: Symbols,
     env: Env,
+}
+
+fn is_not_found(e: &ReadlineError) -> bool {
+    matches!(e, ReadlineError::Io(error) if error.kind() == ErrorKind::NotFound)
 }
 
 impl Interpreter {
@@ -78,6 +84,15 @@ impl Interpreter {
 
     pub fn interactive(&mut self) {
         let mut rl = Editor::<()>::new();
+
+        let mut history_file = dirs::home_dir().unwrap_or(PathBuf::from("."));
+        history_file.push(".risp-history");
+        rl.load_history(&history_file).unwrap_or_else(|e| {
+            if !is_not_found(&e) {
+                print_message(&e);
+            }
+        });
+
         let mut reader = Reader::new();
 
         loop {
@@ -104,6 +119,9 @@ impl Interpreter {
                 Err(e) => break Err(e.to_string()),
             }
         }.unwrap_or_else(|err| print_message(&err));
+
+        rl.save_history(&history_file)
+            .unwrap_or_else(|err| print_message(&err));
     }
 
     fn handle_line(&mut self, reader: &mut Reader, line: &String)
@@ -132,37 +150,6 @@ impl Interpreter {
         }
         Ok(())
     }
-
-    // fn expand_macros(&mut self, object: LispObject) -> Result<LispObject, EvalError> {
-    //     match object {
-    //         LispObject::List(l) => {
-    //             if let Some((params, forms)) = self.as_macro_call(&l) {
-    //                 self.eval_lambda(params, &forms, &l[1..], true)
-    //             } else {
-    //                 Ok(LispObject::List(
-    //                     l.into_iter()
-    //                         .map(|object| self.expand_macros(object))
-    //                         .collect::<Result<Vec<LispObject>, EvalError>>()?
-    //                 ))
-    //             }
-    //         },
-    //         obj => Ok(obj),
-    //     }
-    // }
-
-    // fn as_macro_call(&self, lst: &Vec<LispObject>) -> Option<(ParamList, Vec<LispObject>)> {
-    //     if lst.len() == 0 {
-    //         return None
-    //     }
-
-    //     let resolved_head = lst[0].as_symbol().ok()
-    //         .and_then(|sym| self.env.resolve(&sym));
-
-    //     match resolved_head {
-    //         Some(LispObject::Macro(ps, fs)) => Some((ps.clone(), fs.clone())),
-    //         _ => None,
-    //     }
-    // }
 
     fn eval(&mut self, object: &LispObject) -> Result<LispObject, EvalError> {
         match object {
@@ -219,14 +206,14 @@ impl Interpreter {
 
     fn eval_form(&mut self, lst: &[LispObject], tail: &[LispObject])
                  -> Result<LispObject, (EvalError, bool)> {
-        let fn_def = self.parse_function_def(lst)
+        let FunctionDef {params, forms, is_macro} = self.parse_function_def(lst)
             .map_err(|e| (e, true))?;
 
-        let binding = self.bind_param_list(&fn_def.params, tail, !fn_def.is_macro)?;
-        let result = self.eval_body(Some(binding), fn_def.forms)
+        let binding = self.bind_param_list(&params, tail, !is_macro)?;
+        let result = self.eval_body(Some(binding), forms)
             .map_err(|(e, index)| (e.trace(index + 2), true))?;
 
-        if fn_def.is_macro {
+        if is_macro {
             self.eval(&result)
                 .map_err(|e| (e.frame(result, Some("~>".to_string())).trace(0), true))
         } else {
